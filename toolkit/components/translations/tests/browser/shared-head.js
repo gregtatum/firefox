@@ -1598,9 +1598,9 @@ async function captureTranslationsError(callback) {
   return errors;
 }
 
-async function openFindBar(tab) {
+async function openFindBar(tab, win = window) {
   info("Opening the find bar in the current tab.");
-  const findBar = await gBrowser.getFindBar(tab);
+  const findBar = await win.gBrowser.getFindBar(tab);
   const { promise, resolve } = Promise.withResolvers();
 
   findBar.addEventListener(
@@ -1612,6 +1612,23 @@ async function openFindBar(tab) {
   );
 
   findBar.open();
+  await promise;
+}
+
+async function closeFindBar(tab) {
+  info("Closing the find bar in the current tab.");
+  const findBar = await gBrowser.getFindBar(tab);
+  const { promise, resolve } = Promise.withResolvers();
+
+  findBar.addEventListener(
+    "findbarclose",
+    () => {
+      resolve();
+    },
+    { once: true }
+  );
+
+  findBar.close();
   await promise;
 }
 
