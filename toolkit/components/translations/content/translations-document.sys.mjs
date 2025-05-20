@@ -2294,73 +2294,34 @@ class AntiStarvationStack {
  */
 class TranslationScheduler {
   /**
-   * The highest translation-request priority.
-   *
-   * @returns {number}
+   * The priorities of the translation requests, where P0 is the highest and P7 is the lowest.
+   * 
+   * The priorities are determined by the TranslationsDocument, and are dynamically assigned
+   * based on several factors including whether the request is for a content or an attribute
+   * translation, the location of the element with respect to the viewport, and the user's
+   * recent scrolling activity on the page.
    */
   static get P0() {
     return 0;
   }
-
-  /**
-   * The next highest translation-request priority.
-   *
-   * @returns {number}
-   */
   static get P1() {
     return 1;
   }
-
-  /**
-   * The next highest translation-request priority.
-   *
-   * @returns {number}
-   */
   static get P2() {
     return 2;
   }
-
-  /**
-   * The next highest translation-request priority.
-   *
-   * @returns {number}
-   */
   static get P3() {
     return 3;
   }
-
-  /**
-   * The next highest translation-request priority.
-   *
-   * @returns {number}
-   */
   static get P4() {
     return 4;
   }
-
-  /**
-   * The next highest translation-request priority.
-   *
-   * @returns {number}
-   */
   static get P5() {
     return 5;
   }
-
-  /**
-   * The next highest translation-request priority.
-   *
-   * @returns {number}
-   */
   static get P6() {
     return 6;
   }
-
-  /**
-   * The next highest translation-request priority.
-   *
-   * @returns {number}
-   */
   static get P7() {
     return 7;
   }
@@ -2426,7 +2387,7 @@ class TranslationScheduler {
   #unscheduledRequestPriorities = new Map();
 
   /**
-   * The stacks that correspond to the four priorities a translation request can be assigned.
+   * The stacks that correspond to the eight priorities a translation request can be assigned.
    * The lower the number, the higher the priority. Each priority corresponds to an index in this array.
    *
    * @see {TranslationScheduler.P0}
@@ -2758,7 +2719,7 @@ class TranslationScheduler {
   }
 
   /**
-   * Attempts to cancel a translation request only if it has not been sent to the TranslationsEngine.
+   * Attempts to cancel a translation request if it has not been sent to the TranslationsEngine.
    *
    * To fully cancel a request regardless of whether it has been scheduled or not,
    * use the `cancelSingleTranslation` method.
@@ -3302,32 +3263,66 @@ class TranslationScheduler {
 }
 
 /**
- * This function needs to be fairly fast since it's used on many nodes when iterating
- * over the DOM to find nodes to translate.
+ * Returns true if an HTML element is hidden based on factors such as collapsed state and
+ * computed style, otherwise false.
  *
- * @param {Node} node
+ * @param {HTMLElement} element
+ * @returns {boolean}
  */
-function isNodeHidden(node) {
-  const element = getElementForStyle(node);
-  if (!element) {
-    throw new Error("Unable to find the Element to compute the style for node");
+function isHTMLElementHidden(element) {
+  // This is a cheap and easy check that will not compute style or force reflow.
+  if (element.hidden) {
+    // The element is explicitly hidden.
+    return true;
   }
+
+  // Handle open/closed <details> elements. This will also not compute style or force reflow.
+  // https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/details
+  if (
+    // The element is within a closed <details>
+    element.closest("details:not([open])") &&
+    // The element is not part of the <summary> of the <details>, which is always visible, even when closed.
+    !element.closest("summary")
+  ) {
+    // The element is within a closed <details> and is not part of the <summary>, therefore it is not visible.
+    return true;
+  }
+
+  // This forces reflow, which has a performance cost, but this is also what JQuery uses for its :hidden and :visible.
+  // https://github.com/jquery/jquery/blob/bd6b453b7effa78b292812dbe218491624994526/src/css/hiddenVisibleSelectors.js#L1-L10
+  if (
+    !(
+      element.offsetWidth ||
+      element.offsetHeight ||
+      element.getClientRects().length
+    )
+  ) {
+    return true;
+  }
+
   const { ownerGlobal } = element;
   if (!ownerGlobal) {
+    // We cannot compute the style without ownerGlobal, so we will assume it is not visible.
     return true;
   }
 
   // This flushes the style, which is a performance cost.
   const style = ownerGlobal.getComputedStyle(element);
   if (!style) {
+    // We were unable to compute the style, so we will assume it is not visible.
     return true;
   }
 
   // This is an issue with the DOM library generation.
   // @ts-expect-error Property 'display' does not exist on type 'CSSStyleDeclaration'.ts(2339)
-  const { display, visibility } = style.display;
+  const { display, visibility, opacity } = style;
 
-  return display === "none" || visibility === "hidden";
+  return (
+    display === "none" ||
+    visibility === "hidden" ||
+    visibility === "collapse" ||
+    opacity === "0"
+  );
 }
 
 /**
@@ -3336,22 +3331,22 @@ function isNodeHidden(node) {
  *
  * @param {Node} node
  *
- * @returns {Element | null}
+ * @returns {HTMLElement | null}
  */
-function getElementForStyle(node) {
-  const element = asElement(node);
+function getHTMLElementForStyle(node) {
+  const element = asHTMLElement(node);
   if (element) {
     return element;
   }
 
   if (node.parentElement) {
-    return node.parentElement;
+    return asHTMLElement(node.parentElement);
   }
 
   // For cases like text node where its parent is ShadowRoot,
   // we'd like to use flattenedTreeParentNode
   if (node.flattenedTreeParentNode) {
-    return asElement(node.flattenedTreeParentNode);
+    return asHTMLElement(node.flattenedTreeParentNode);
   }
 
   // If the text node is not connected or doesn't have a frame.
