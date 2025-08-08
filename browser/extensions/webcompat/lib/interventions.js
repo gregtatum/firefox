@@ -198,17 +198,17 @@ class Interventions {
       try {
         await this._enableInterventionNow(config);
       } catch (e) {
-        console.error("Error enabling intervention(s) for", config.label, e);
+        // console.error("Error enabling intervention(s) for", config.label, e);
       }
     }
 
     if (skipped.length) {
-      console.warn(
-        "Skipping",
-        skipped.length,
-        "un-needed interventions",
-        skipped.sort()
-      );
+      // console.warn(
+      //   "Skipping",
+      //   skipped.length,
+      //   "un-needed interventions",
+      //   skipped.sort()
+      // );
     }
 
     this._interventionsEnabled = true;
@@ -387,7 +387,7 @@ class Interventions {
 
     listeners.onBeforeSendHeaders = listener;
 
-    console.info(`Enabled UA override for ${label}`);
+    // console.info(`Enabled UA override for ${label}`);
   }
 
   async _enableRequestBlocks(label, intervention, blocks) {
@@ -438,10 +438,10 @@ class Interventions {
         ({ id }) => !alreadyReggedIds.includes(id)
       );
       await browser.scripting.registerContentScripts(stillNeeded);
-      console.info(
-        `Registered still-not-active content scripts for ${label}`,
-        stillNeeded
-      );
+      // console.info(
+      //   `Registered still-not-active content scripts for ${label}`,
+      //   stillNeeded
+      // );
     } catch (e) {
       try {
         await browser.scripting.registerContentScripts(scriptsToReg);
