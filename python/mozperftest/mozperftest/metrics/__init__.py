@@ -3,6 +3,7 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 from mozperftest.layers import Layers
 from mozperftest.metrics.consoleoutput import ConsoleOutput
+from mozperftest.metrics.evalperfherder import EvalPerfherder
 from mozperftest.metrics.notebookupload import Notebook
 from mozperftest.metrics.perfboard.influx import Influx
 from mozperftest.metrics.perfherder import Perfherder
@@ -10,7 +11,7 @@ from mozperftest.metrics.visualmetrics import VisualMetrics
 
 
 def get_layers():
-    return VisualMetrics, Perfherder, ConsoleOutput, Notebook, Influx
+    return VisualMetrics, Perfherder, EvalPerfherder, ConsoleOutput, Notebook, Influx
 
 
 def pick_metrics(env, flavor, mach_cmd):
@@ -23,6 +24,6 @@ def pick_metrics(env, flavor, mach_cmd):
         layers = []
     else:
         # we don't need VisualMetrics for xpcshell
-        layers = Perfherder, ConsoleOutput, Notebook, Influx
+        layers = Perfherder, EvalPerfherder, ConsoleOutput, Notebook, Influx
 
     return Layers(env, mach_cmd, layers)
