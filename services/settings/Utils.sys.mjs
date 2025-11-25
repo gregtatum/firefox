@@ -97,6 +97,14 @@ const _cdnURLs = {};
 
 export var Utils = {
   get SERVER_URL() {
+    console.log("!!! lazy.allowServerURLOverride", lazy.allowServerURLOverride);
+    console.log(
+      "!!! SERVER_URL",
+      lazy.allowServerURLOverride
+        ? lazy.gServerURL
+        : AppConstants.REMOTE_SETTINGS_SERVER_URL
+    );
+
     return lazy.allowServerURLOverride
       ? lazy.gServerURL
       : AppConstants.REMOTE_SETTINGS_SERVER_URL;
@@ -222,6 +230,7 @@ export var Utils = {
    */
   async fetch(input, init = {}) {
     return new Promise(function (resolve, reject) {
+      console.log(`!!! input`, input);
       const request = new ServiceRequest();
       function fallbackOrReject(err) {
         if (
@@ -280,6 +289,7 @@ export var Utils = {
         request.setRequestHeader(name, value);
       }
 
+      console.trace();
       request.send();
     });
   },
@@ -566,6 +576,8 @@ export var Utils = {
     try {
       const baseUrl = await Utils.baseAttachmentsURL();
       const bundleUrl = `${baseUrl}bundles/startup.json.mozlz4`;
+      console.log(`!!! baseUrl`, baseUrl);
+      console.log(`!!! bundleUrl`, bundleUrl);
       const bundleResp = await Utils.fetch(bundleUrl);
       if (!bundleResp.ok) {
         throw new Error(`Cannot fetch changeset bundle from ${bundleUrl}`);

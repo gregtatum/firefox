@@ -61,6 +61,7 @@ class MLServicesProxy(Layer):
         self.bound_host = None
         self.bound_port = None
         self.local_base = None
+        self.attachments_upstream = None
 
     def setup(self):
         os.environ["MOZ_REMOTE_SETTINGS_DEVTOOLS"] = "1"
@@ -127,7 +128,16 @@ class MLServicesProxy(Layer):
         port = 0
         timeout = 30.0
 
+        upstream_path = urlparse(upstream).path or "/"
+        upstream_path = upstream_path.rstrip("/") or "/"
+
         def resolve(parsed):
+            req_path = parsed.path.rstrip("/") or "/"
+            if req_path == upstream_path:
+                return ("root", upstream_path, upstream)
+            cdn_prefix = f"{upstream_path}/cdn/"
+            if parsed.path.startswith(cdn_prefix):
+                return ("cdn", cdn_prefix, upstream)
             for prefix, root in fixtures:
                 if parsed.path.startswith(prefix):
                     return ("fixture", prefix, root)
@@ -176,7 +186,73 @@ class MLServicesProxy(Layer):
                 }
                 proxy.request_log.append(entry)
                 try:
-                    if mode == "fixture":
+                    if mode == "root":
+                        upstream_root = upstream if upstream.endswith("/") else upstream + "/"
+                        resp = requests.get(upstream_root, timeout=30.0)
+                        data = resp.json()
+                        attachments = (
+                            data.get("capabilities", {})
+                            .get("attachments", {})
+                        )
+                        proxy.attachments_upstream = attachments.get("base_url")
+                        local_cdn = (
+                            f"http://{proxy.bound_host}:{proxy.bound_port}"
+                            f"{upstream_path}/cdn/"
+                        )
+                        if "capabilities" in data and "attachments" in data["capabilities"]:
+                            data["capabilities"]["attachments"][
+                                "base_url"
+                            ] = local_cdn
+                        body = json.dumps(data).encode("utf-8")
+                        handler.send_response(resp.status_code)
+                        handler.send_header("Content-Type", "application/json")
+                        handler.send_header("Content-Length", str(len(body)))
+                        handler.end_headers()
+                        if handler.command != "HEAD":
+                            handler.wfile.write(body)
+                    elif mode == "cdn":
+                        if not proxy.attachments_upstream:
+                            self.send_error(502, explain="Missing upstream attachments URL")
+                            return
+                        base = proxy.attachments_upstream
+                        if not base.endswith("/"):
+                            base += "/"
+                        rest = parsed.path[len(prefix) :]
+                        target_url = urljoin(base, rest)
+                        if parsed.query:
+                            target_url = f"{target_url}?{parsed.query}"
+
+                        content_length = int(handler.headers.get("Content-Length", 0))
+                        body = (
+                            handler.rfile.read(content_length)
+                            if content_length > 0
+                            else None
+                        )
+                        headers = {
+                            k: v
+                            for k, v in handler.headers.items()
+                            if k.lower() not in HOP_BY_HOP_HEADERS
+                        }
+                        resp = requests.request(
+                            method=handler.command,
+                            url=target_url,
+                            headers=headers,
+                            data=body,
+                            timeout=30.0,
+                        )
+                        content = resp.content if handler.command != "HEAD" else b""
+                        handler.send_response(resp.status_code)
+                        for k, v in resp.headers.items():
+                            if k.lower() in HOP_BY_HOP_HEADERS:
+                                continue
+                            if k.lower() == "content-length":
+                                continue
+                            handler.send_header(k, v)
+                        handler.send_header("Content-Length", str(len(content)))
+                        handler.end_headers()
+                        if content:
+                            handler.wfile.write(content)
+                    elif mode == "fixture":
                         proxy._serve_fixture(self, prefix, target, parsed)
                     else:
                         proxy._forward(self, target, parsed)
