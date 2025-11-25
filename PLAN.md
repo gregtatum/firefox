@@ -8,8 +8,8 @@ LLM instructions: Update this plan as tasks progress, replacing `[ ]` with `[x]`
 - mozproxy recording steps: add site to testing/performance/pageload_sites.json; run `./mach perftest --flavor desktop-browser --verbose --proxy --hooks testing/performance/hooks_recording.py --proxy-perftest-page NAME testing/performance/perftest_record.js`; upload artifact from mozilla-central/artifacts to tooltool; add to manifest. Perf team can assist.
 
 # Plan
-- [ ] Define evaluation requirements: inputs, actions, outputs, target endpoints, metrics (BLEU/LLM-judge/latency/success), privacy/artifact policies.
-- [ ] Specify eval payload contract: mochitest emits structured stdout/JSON for metrics; deterministic seeds, fixed pages; use recorded pageloads if needed.
+- [x] Define evaluation requirements: start with EN→ES BLEU sample mochitest that emits JSON payload; defer privacy/artifact work for now.
+- [x] Specify eval payload contract: mochitest logs `EVAL_RESULT` JSON results. Evaluations follow.
 - [ ] Prototype mozperftest eval layer to run minimal mochitest(s) and forward payload via metadata.
 - [ ] Add custom metrics layer to compute scores (BLEU/others) and optionally call LLM-as-judge behind a flag.
 - [ ] Wire CLI ergonomics: flags for prompt file, endpoint, run-id, offline/no-network, artifact path, seed; document a sample `./mach perftest ...` command with layers enabled.

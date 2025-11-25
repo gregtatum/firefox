@@ -11,6 +11,7 @@ BROWSER_CHROME_MANIFESTS += [
     "tests/browser/browser_select.toml",
     "tests/browser/browser_telemetry.toml",
     "tests/browser/perftest.toml",
+    "tests/browser_eval/eval.toml",
 ]
 
 JAR_MANIFESTS += ["jar.mn"]
