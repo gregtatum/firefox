@@ -8,6 +8,7 @@ from mozperftest.argparser import FLAVORS
 from mozperftest.hooks import Hooks
 from mozperftest.layers import Layers, StopRunError
 from mozperftest.metrics import pick_metrics
+from mozperftest.metrics.eval import EvalMetrics
 from mozperftest.system import pick_system
 from mozperftest.test import pick_test
 from mozperftest.utils import MachLogger
@@ -91,17 +92,18 @@ class MachEnvironment(MachLogger):
             with self.layers[SYSTEM] as syslayer, self.layers[TEST] as testlayer:
                 metadata = testlayer(syslayer(metadata))
 
-            # If we only have eval results and no perf results, skip metrics layers.
-            if (
+            eval_only = (
                 hasattr(metadata, "get_eval_results")
                 and metadata.get_eval_results()
                 and not metadata.get_results()
-            ):
-                return metadata
+            )
 
-            # then run the metrics layers
-            with self.layers[METRICS] as metrics:
-                metadata = metrics(metadata)
+            if eval_only:
+                with EvalMetrics(self, self._mach_cmd) as evalmetrics:
+                    metadata = evalmetrics(metadata)
+            else:
+                with self.layers[METRICS] as metrics:
+                    metadata = metrics(metadata)
         except StopRunError:
             # ends the cycle but without bubbling up the error
             pass
