@@ -10,11 +10,16 @@ LLM instructions: Update this plan as tasks progress, replacing `[ ]` with `[x]`
 # Plan
 - [x] Define evaluation requirements: start with EN→ES BLEU sample mochitest that emits JSON payload; defer privacy/artifact work for now.
 - [x] Specify eval payload contract: mochitest logs `EVAL_RESULT` JSON results. Evaluations follow.
-- [ ] Prototype mozperftest eval layer to run minimal mochitest(s) and forward payload via metadata.
-- [ ] Add custom metrics layer to compute scores (BLEU/others) and optionally call LLM-as-judge behind a flag.
+- [x] Prototype mozperftest eval layer to run minimal mochitest(s) and forward payload via metadata.
+- [x] Add custom metrics layer to compute scores (BLEU/others) and optionally call LLM-as-judge behind a flag.
 - [ ] Wire CLI ergonomics: flags for prompt file, endpoint, run-id, offline/no-network, artifact path, seed; document a sample `./mach perftest ...` command with layers enabled.
 - [ ] Ensure deterministic inputs/artifacts; store JSON summaries under artifacts/.
 - [ ] Add tests for layers (mock network/LLM); keep mochitest minimal (single happy path).
 - [ ] Integrate recording/tooltool needs for any pageload dependencies.
 - [ ] Socialize prototype with perf team for hooks/priority and iterate.
 - [ ] Finalize flow, mark completed tasks with `[x]`, adjust scope as needed.
+
+# Notes:
+
+Patch to get conditioned profile artifacts automatically.
+https://phabricator.services.mozilla.com/D257197
