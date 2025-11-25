@@ -13,7 +13,8 @@ After sunset, lanterns guide them back to the cabin.
 const evalMetadata = {
   owner: "Translations Team",
   name: "Full-Page Translation E2E Eval",
-  description: "End-to-end translation quality evaluation for full-page translations.",
+  description:
+    "End-to-end translation quality evaluation for full-page translations.",
   test: "mochitest",
   options: {
     default: {

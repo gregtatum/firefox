@@ -46,6 +46,13 @@ async function setupEvaluation({
   info("Setting the proxy URL for remote settings: " + proxyURL);
   Services.prefs.setStringPref("services.settings.server", proxyURL);
 
+  {
+    const { RemoteSettingsClient } = ChromeUtils.importESModule(
+      "resource://services-settings/RemoteSettingsClient.sys.mjs"
+    );
+    RemoteSettingsClient.prototype.validateCollectionSignature = async () => {};
+  }
+
   const { url, serverClosed } = serveOnce(markup);
 
   const tab = await BrowserTestUtils.openNewForegroundTab(
