@@ -29,15 +29,22 @@ function html(strings, ...values) {
 async function setupEvaluation({
   markup,
   endToEndTest = false,
-  architecture,
-  languagePairs,
+  architecture, // unused now
+  languagePairs, // unused now
   appLocales,
   systemLocales = ["en"],
   webLanguages,
 }) {
-  endToEndTest
-    ? await createFileSystemRemoteSettings(languagePairs, architecture)
-    : await createAndMockRemoteSettings({ languagePairs });
+  const proxyURL = Services.env.get("ML_SERVICES_PROXY_URL");
+  if (!proxyURL) {
+    throw new Error(
+      "The ML_SERVICES_PROXY_URL was not set for the test. This is set when run " +
+        "via the mozpertest harness (./mach perftest path/to/test)."
+    );
+  }
+
+  info("Setting the proxy URL for remote settings: " + proxyURL);
+  Services.prefs.setStringPref("services.settings.server", proxyURL);
 
   const { url, serverClosed } = serveOnce(markup);
 

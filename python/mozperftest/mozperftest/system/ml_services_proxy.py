@@ -198,12 +198,8 @@ class MLServicesProxy(Layer):
             "extra_prefs",
             {"services.settings.server": self.local_base},
         )
-        metadata.add_extra_options(
-            [
-                "--setenv",
-                "MOZ_REMOTE_SETTINGS_DEVTOOLS=1",
-            ]
-        )
+        os.environ["MOZ_REMOTE_SETTINGS_DEVTOOLS"] = "1"
+        os.environ["ML_SERVICES_PROXY_URL"] = self.local_base
         self.info(f"ML services proxy at {self.local_base}")
         return metadata
 
