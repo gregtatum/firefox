@@ -12,6 +12,7 @@ from mozperftest.test.functionaltestrunner import (
 )
 from mozperftest.utils import (
     METRICS_MATCHER,
+    EVAL_RESULT_MATCHER,
     ON_TRY,
     LogProcessor,
     NoPerfMetricsError,
@@ -288,7 +289,7 @@ class Mochitest(Layer):
             args.symbolsPath = str(Path(fetch_dir, "crashreporter-symbols"))
             args.certPath = str(Path(fetch_dir, "certs"))
 
-        log_processor = LogProcessor(METRICS_MATCHER)
+        log_processor = LogProcessor(METRICS_MATCHER, EVAL_RESULT_MATCHER)
         with redirect_stdout(log_processor):
             if self.get_arg("android"):
                 result = runtestsremote.run_test_harness(parser, args)
@@ -332,6 +333,19 @@ class Mochitest(Layer):
             for metrics_line in log_processor.match:
                 self.metrics.append(json.loads(metrics_line.split("|")[-1].strip()))
 
+            eval_lines = []
+            if hasattr(log_processor, "secondary_match"):
+                eval_lines.extend(log_processor.secondary_match)
+            if hasattr(log_processor, "eval_match"):
+                eval_lines.extend(log_processor.eval_match)
+
+            for eval_line in eval_lines:
+                try:
+                    payload = eval_line.split("EVAL_RESULT", 1)[1].strip()
+                    metadata.add_eval_result(json.loads(payload))
+                except Exception:
+                    self.warning("Could not parse eval result line: %s" % eval_line)
+
         for m in self.metrics:
             # Expecting results like {"metric-name": value, "metric-name2": value, ...}
             if isinstance(m, dict):
@@ -355,16 +369,25 @@ class Mochitest(Layer):
                     else:
                         results.append(metric)
 
-        if len(results) == 0:
+        if len(results) == 0 and len(metadata.get_eval_results()) == 0:
             raise NoPerfMetricsError("mochitest")
 
-        metadata.add_result(
-            {
-                "name": test_name,
-                "framework": {"name": "mozperftest"},
-                "transformer": "mozperftest.test.mochitest:MochitestData",
-                "results": results,
-            }
-        )
+        if metadata.get_eval_results():
+            output_dir = Path(self.get_arg("output")).resolve()
+            output_dir.mkdir(parents=True, exist_ok=True)
+            out_file = output_dir / f"{test_name}-eval-results.json"
+            out_file.write_text(json.dumps(metadata.get_eval_results(), indent=2))
+            if metadata.get_output() is None:
+                metadata.set_output(str(out_file))
+
+        if results:
+            metadata.add_result(
+                {
+                    "name": test_name,
+                    "framework": {"name": "mozperftest"},
+                    "transformer": "mozperftest.test.mochitest:MochitestData",
+                    "results": results,
+                }
+            )
 
         return metadata

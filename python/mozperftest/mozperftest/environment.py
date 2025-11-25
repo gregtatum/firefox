@@ -91,6 +91,14 @@ class MachEnvironment(MachLogger):
             with self.layers[SYSTEM] as syslayer, self.layers[TEST] as testlayer:
                 metadata = testlayer(syslayer(metadata))
 
+            # If we only have eval results and no perf results, skip metrics layers.
+            if (
+                hasattr(metadata, "get_eval_results")
+                and metadata.get_eval_results()
+                and not metadata.get_results()
+            ):
+                return metadata
+
             # then run the metrics layers
             with self.layers[METRICS] as metrics:
                 metadata = metrics(metadata)

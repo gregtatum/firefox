@@ -10,6 +10,19 @@ Travelers carry a notebook to record the names of birds they hear.
 After sunset, lanterns guide them back to the cabin.
 `;
 
+const evalMetadata = {
+  owner: "Translations Team",
+  name: "Full-Page Translation E2E Eval",
+  description: "End-to-end translation quality evaluation for full-page translations.",
+  test: "mochitest",
+  options: {
+    default: {
+      manifest: "eval.toml",
+      manifest_flavor: "browser-chrome",
+    },
+  },
+};
+
 add_task(async function test_full_page_e2e_eval() {
   const markup = html`
     <article>

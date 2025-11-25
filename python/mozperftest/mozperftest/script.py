@@ -32,6 +32,8 @@ METADATA = [
     ("tags", False),
 ]
 
+METADATA_NAMES = ("perfMetadata", "evalMetadata")
+
 
 _INFO = """\
 %(filename)s
@@ -60,7 +62,7 @@ class MissingFieldError(Exception):
 
 class MissingPerfMetadataError(Exception):
     def __init__(self, script):
-        super().__init__("Missing `perfMetadata` variable")
+        super().__init__("Missing `perfMetadata` or `evalMetadata` variable")
         self.script = script
 
 
@@ -87,6 +89,7 @@ class ScriptType(Enum):
     mochitest = 3
     custom = 4
     alert = 5
+    eval = 6
 
 
 class HTMLScriptParser(HTMLParser):
@@ -141,7 +144,10 @@ class ScriptInfo(defaultdict):
         if self.get("options", {}).get("default", {}).get("manifest_flavor"):
             # Only mochitest tests have a manifest flavor
             self["test"] = "mochitest"
-            self.script_type = ScriptType.mochitest
+            if self.get("eval", False):
+                self.script_type = ScriptType.eval
+            else:
+                self.script_type = ScriptType.mochitest
 
     def _get_node_builtins(self):
         """
@@ -262,16 +268,21 @@ class ScriptInfo(defaultdict):
         for obj, funcs in member_calls.items():
             func_defs = ", ".join(f"{f}: () => true" for f in sorted(funcs))
             stub_declarations += f"\nglobalThis.{obj} = {{ {func_defs} }};"
+        exports_injection = "".join(
+            [
+                f"\nif (typeof {name} !== 'undefined') globalThis.{name} = {name};"
+                for name in METADATA_NAMES
+            ]
+        )
+
         js_code = f"""
         const vm = require('vm');
 
         const fileCode = {json.dumps(self.script_content)};
         const stubGlobals = {json.dumps(stub_declarations)};
-        const finalScript = fileCode +
-            "\\nif (typeof perfMetadata !== 'undefined')" +
-            " globalThis.perfMetadata = perfMetadata;";
+        const finalScript = fileCode + {json.dumps(exports_injection)};
 
-        const context = {{ perfMetadata: undefined, module: {{ exports: {{}} }}, console: console, }};
+        const context = {{ perfMetadata: undefined, evalMetadata: undefined, module: {{ exports: {{}} }}, console: console, }};
 
         vm.createContext(context);
         vm.runInContext(stubGlobals, context);
@@ -279,8 +290,14 @@ class ScriptInfo(defaultdict):
 
         const metadata =
             context.perfMetadata ||
+            context.evalMetadata ||
             context.module.exports.perfMetadata ||
+            context.module.exports.evalMetadata ||
             context.module.exports;
+
+        const metadataName = context.evalMetadata || context.module.exports.evalMetadata
+            ? "evalMetadata"
+            : "perfMetadata";
 
         const functionKeys = Object.entries(metadata)
             .filter(([key, val]) => typeof val === 'function')
@@ -288,7 +305,8 @@ class ScriptInfo(defaultdict):
 
         const result = {{
             ...metadata,
-            __function_keys__: functionKeys
+            __function_keys__: functionKeys,
+            __metadata_name__: metadataName
         }};
 
         if (!result) throw new Error('perfMetadata not found');
@@ -310,12 +328,15 @@ class ScriptInfo(defaultdict):
     def _parse_script_content(self):
         self.parsed = esprima.parseScript(self.script_content)
         parsed_perfmetadata_dynamic = False
+        metadata_name = None
         try:
             metadata = self._get_perf_metadata_from_node()
             for key, value in metadata.items():
                 if key == "__function_keys__":
                     for func_name in value:
                         self[func_name] = func_name
+                elif key == "__metadata_name__":
+                    metadata_name = value
                 else:
                     self[key] = value
             parsed_perfmetadata_dynamic = True
@@ -358,9 +379,11 @@ class ScriptInfo(defaultdict):
                         or decl.init is None
                     ):
                         continue
-                    found_perfmetadata = True
-                    self.scan_properties(decl.init.properties)
-                    continue
+                    if decl.id.name in METADATA_NAMES:
+                        found_perfmetadata = True
+                        metadata_name = decl.id.name
+                        self.scan_properties(decl.init.properties)
+                        continue
 
             # or the module.exports map ?
             if (
@@ -375,10 +398,18 @@ class ScriptInfo(defaultdict):
 
             # now scanning the properties
             found_perfmetadata = True
+            metadata_name = "evalMetadata" if any(
+                prop.key.name == "evalMetadata"
+                for prop in stmt.expression.right.properties
+                if hasattr(prop, "key") and hasattr(prop.key, "name")
+            ) else "perfMetadata"
             self.scan_properties(stmt.expression.right.properties)
 
         if not (found_perfmetadata or parsed_perfmetadata_dynamic):
             raise MissingPerfMetadataError(self.script)
+
+        if metadata_name == "evalMetadata":
+            self["eval"] = True
 
     def _parse_html_file(self):
         self._set_script_content()
@@ -557,7 +588,7 @@ class ScriptInfo(defaultdict):
 
         if self.script_type == ScriptType.xpcshell:
             result["flavor"] = "xpcshell"
-        if self.script_type == ScriptType.mochitest:
+        if self.script_type in (ScriptType.mochitest, ScriptType.eval):
             result["flavor"] = "mochitest"
         if self.script_type == ScriptType.custom:
             result["flavor"] = "custom-script"

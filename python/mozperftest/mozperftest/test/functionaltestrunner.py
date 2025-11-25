@@ -14,16 +14,26 @@ class FunctionalTestProcessor(mozlog.handlers.StreamHandler):
 
     def __init__(self, *args, **kwargs):
         self._match = []
+        self._eval_match = []
         super().__init__(*args, **kwargs)
 
     def __call__(self, data):
         formatted = self.formatter(data)
-        if formatted is not None and "perfMetrics" in formatted:
+        if formatted is None:
+            return
+
+        if "perfMetrics" in formatted:
             self.match.append(formatted)
+        if "EVAL_RESULT" in formatted:
+            self.eval_match.append(formatted)
 
     @property
     def match(self):
         return self._match
+
+    @property
+    def eval_match(self):
+        return self._eval_match
 
 
 class FunctionalTestRunner:

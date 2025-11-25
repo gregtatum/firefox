@@ -32,6 +32,7 @@ MULTI_TASK_ROOT = f"{API_ROOT}/tasks"
 ON_TRY = "MOZ_AUTOMATION" in os.environ
 DOWNLOAD_TIMEOUT = 30
 METRICS_MATCHER = re.compile(r"(perfMetrics.*)")
+EVAL_RESULT_MATCHER = re.compile(r"(EVAL_RESULT.*)")
 PRETTY_APP_NAMES = {
     "org.mozilla.fenix": "fenix",
     "org.mozilla.firefox": "fenix",
@@ -59,15 +60,21 @@ class NoPerfMetricsError(Exception):
 
 
 class LogProcessor:
-    def __init__(self, matcher):
+    def __init__(self, matcher, secondary_matcher=None):
         self.buf = ""
         self.stdout = sys.__stdout__
         self.matcher = matcher
+        self.secondary_matcher = secondary_matcher
         self._match = []
+        self._secondary_match = []
 
     @property
     def match(self):
         return self._match
+
+    @property
+    def secondary_match(self):
+        return self._secondary_match
 
     def write(self, buf):
         while buf:
@@ -91,6 +98,11 @@ class LogProcessor:
             match = self.matcher.search(data)
             if match:
                 self._match.append(match.group(1))
+
+            if self.secondary_matcher:
+                match = self.secondary_matcher.search(data)
+                if match:
+                    self._secondary_match.append(match.group(1))
 
     def flush(self):
         pass
@@ -356,6 +368,8 @@ def build_test_list(tests):
             res.append(str(resolved_test))
         elif resolved_test.is_dir():
             for file in resolved_test.rglob("perftest_*.js"):
+                res.append(str(file))
+            for file in resolved_test.rglob("eval_*.js"):
                 res.append(str(file))
         else:
             raise FileNotFoundError(str(resolved_test))
