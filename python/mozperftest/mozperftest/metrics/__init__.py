@@ -17,6 +17,8 @@ def get_layers():
 def pick_metrics(env, flavor, mach_cmd):
     if flavor in ("desktop-browser", "mobile-browser"):
         layers = get_layers()
+    elif flavor == "eval-mochitest":
+        layers = Perfherder, EvalPerfherder, ConsoleOutput, Notebook, Influx
     elif flavor == "alert":
         # We get data that is already in a perfherder
         # data format so there's no need to use any metric

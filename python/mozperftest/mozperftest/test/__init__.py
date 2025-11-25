@@ -34,6 +34,8 @@ def pick_test(env, flavor, mach_cmd):
         return Layers(env, mach_cmd, (WebPageTest,))
     if flavor == "mochitest":
         return Layers(env, mach_cmd, (Mochitest,))
+    if flavor == "eval-mochitest":
+        return Layers(env, mach_cmd, (Mochitest,))
     if flavor == "custom-script":
         return Layers(env, mach_cmd, (ShellScriptRunner,))
     if flavor == "alert":

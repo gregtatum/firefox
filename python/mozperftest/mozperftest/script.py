@@ -588,8 +588,10 @@ class ScriptInfo(defaultdict):
 
         if self.script_type == ScriptType.xpcshell:
             result["flavor"] = "xpcshell"
-        if self.script_type in (ScriptType.mochitest, ScriptType.eval):
+        if self.script_type == ScriptType.mochitest:
             result["flavor"] = "mochitest"
+        if self.script_type == ScriptType.eval:
+            result["flavor"] = "eval-mochitest"
         if self.script_type == ScriptType.custom:
             result["flavor"] = "custom-script"
 
