@@ -62,6 +62,7 @@ class MLServicesProxy(Layer):
         self.bound_port = None
         self.local_base = None
         self.attachments_upstream = None
+        self.errors = []
 
     def setup(self):
         os.environ["MOZ_REMOTE_SETTINGS_DEVTOOLS"] = "1"
@@ -96,9 +97,12 @@ class MLServicesProxy(Layer):
         content_length = int(handler.headers.get("Content-Length", 0))
         body = handler.rfile.read(content_length) if content_length > 0 else None
         headers = {
-            k: v for k, v in handler.headers.items() if k.lower() not in HOP_BY_HOP_HEADERS
+            k: v
+            for k, v in handler.headers.items()
+            if k.lower() not in HOP_BY_HOP_HEADERS
         }
 
+        self.info(f"[ml-services-proxy] {handler.command} {target_url}")
         resp = requests.request(
             method=handler.command,
             url=target_url,
@@ -107,9 +111,22 @@ class MLServicesProxy(Layer):
             timeout=30.0,
         )
         content = resp.content if handler.command != "HEAD" else b""
+        if resp.status_code >= 400:
+            sample = content[:200].decode("utf-8", "replace")
+            self.error(
+                f"Proxy upstream error {resp.status_code} for {handler.command} {target_url}: {sample}"
+            )
+            self.errors.append(
+                {
+                    "path": parsed.path,
+                    "status": resp.status_code,
+                    "target": target_url,
+                    "sample": sample,
+                }
+            )
 
         try:
-            proxy.request_log.append(
+            self.request_log.append(
                 {
                     "path": parsed.path,
                     "status": resp.status_code,
@@ -199,22 +216,24 @@ class MLServicesProxy(Layer):
                 proxy.request_log.append(entry)
                 try:
                     if mode == "root":
-                        upstream_root = upstream if upstream.endswith("/") else upstream + "/"
+                        upstream_root = (
+                            upstream if upstream.endswith("/") else upstream + "/"
+                        )
                         resp = requests.get(upstream_root, timeout=30.0)
                         data = resp.json()
-                        attachments = (
-                            data.get("capabilities", {})
-                            .get("attachments", {})
+                        attachments = data.get("capabilities", {}).get(
+                            "attachments", {}
                         )
                         proxy.attachments_upstream = attachments.get("base_url")
                         local_cdn = (
                             f"http://{proxy.bound_host}:{proxy.bound_port}"
                             f"{upstream_path}/cdn/"
                         )
-                        if "capabilities" in data and "attachments" in data["capabilities"]:
-                            data["capabilities"]["attachments"][
-                                "base_url"
-                            ] = local_cdn
+                        if (
+                            "capabilities" in data
+                            and "attachments" in data["capabilities"]
+                        ):
+                            data["capabilities"]["attachments"]["base_url"] = local_cdn
                         body = json.dumps(data).encode("utf-8")
                         self.send_response(resp.status_code)
                         self.send_header("Content-Type", "application/json")
@@ -235,7 +254,9 @@ class MLServicesProxy(Layer):
                             pass
                     elif mode == "cdn":
                         if not proxy.attachments_upstream:
-                            self.send_error(502, explain="Missing upstream attachments URL")
+                            self.send_error(
+                                502, explain="Missing upstream attachments URL"
+                            )
                             return
                         base = proxy.attachments_upstream
                         if not base.endswith("/"):
@@ -244,6 +265,8 @@ class MLServicesProxy(Layer):
                         target_url = urljoin(base, rest)
                         if parsed.query:
                             target_url = f"{target_url}?{parsed.query}"
+
+                        proxy.info(f"[ml-services-proxy] {self.command} {target_url}")
 
                         content_length = int(self.headers.get("Content-Length", 0))
                         body = (
@@ -264,6 +287,19 @@ class MLServicesProxy(Layer):
                             timeout=30.0,
                         )
                         content = resp.content if self.command != "HEAD" else b""
+                        if resp.status_code >= 400:
+                            sample = content[:200].decode("utf-8", "replace")
+                            proxy.error(
+                                f"Proxy upstream error {resp.status_code} for attachments {self.command} {target_url}: {sample}"
+                            )
+                            proxy.errors.append(
+                                {
+                                    "path": parsed.path,
+                                    "status": resp.status_code,
+                                    "target": target_url,
+                                    "sample": sample,
+                                }
+                            )
                         try:
                             proxy.request_log.append(
                                 {
@@ -291,12 +327,25 @@ class MLServicesProxy(Layer):
                     else:
                         proxy._forward(self, target, parsed)
                 except Exception as exc:
+                    proxy.errors.append(
+                        {
+                            "path": parsed.path,
+                            "status": 502,
+                            "target": target,
+                            "sample": str(exc),
+                        }
+                    )
+                    proxy.error(
+                        f"Proxy exception for {self.command} {self.path}: {exc}"
+                    )
                     self.send_error(502, explain=str(exc))
 
         self.server = ThreadingHTTPServer((host, port), Handler)
         self.server.timeout = timeout
         self.bound_host, self.bound_port = self.server.server_address
-        self.local_base = f"http://{self.bound_host}:{self.bound_port}{urlparse(upstream).path}"
+        self.local_base = (
+            f"http://{self.bound_host}:{self.bound_port}{urlparse(upstream).path}"
+        )
 
         self.thread = threading.Thread(target=self.server.serve_forever)
         self.thread.daemon = True
@@ -310,7 +359,7 @@ class MLServicesProxy(Layer):
         )
         os.environ["MOZ_REMOTE_SETTINGS_DEVTOOLS"] = "1"
         os.environ["ML_SERVICES_PROXY_URL"] = self.local_base
-        self.info(f"ML services proxy at {self.local_base}")
+        self.info(f"[ml-services-proxy] Running proxy at: {self.local_base}")
         return metadata
 
     def teardown(self):
@@ -319,3 +368,8 @@ class MLServicesProxy(Layer):
             self.thread.join()
             self.server.server_close()
         # Optional future: persist request logs if we want to inspect them.
+        if self.errors:
+            first = self.errors[0]
+            raise RuntimeError(
+                f"ML services proxy saw upstream errors, first: {first['status']} {first['target']} ({first['sample']})"
+            )

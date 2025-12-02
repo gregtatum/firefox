@@ -23,7 +23,7 @@ function html(strings, ...values) {
     }
   }
 
-  return `<!DOCTYPE html><body>${markup}</body>`;
+  return `<!DOCTYPE html><head><body>${markup}</body>`;
 }
 
 async function setupEvaluation({
