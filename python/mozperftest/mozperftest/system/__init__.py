@@ -6,7 +6,7 @@ from mozperftest.system.android import AndroidDevice
 from mozperftest.system.binarysetup import BinarySetup
 from mozperftest.system.geckoprofiler import GeckoProfiler
 from mozperftest.system.macos import MacosDevice
-from mozperftest.system.ml_services_proxy import MLServicesProxy
+from mozperftest.system.ml_services_proxy import ModelHubProxy, RemoteSettingsProxy
 from mozperftest.system.pingserver import PingServer
 from mozperftest.system.profile import Profile
 from mozperftest.system.proxy import ProxyRunner
@@ -19,7 +19,8 @@ def get_layers():
         PingServer,
         Profile,
         ProxyRunner,
-        MLServicesProxy,
+        RemoteSettingsProxy,
+        ModelHubProxy,
         AndroidDevice,
         MacosDevice,
         SimpleperfProfiler,
@@ -85,7 +86,8 @@ def pick_system(env, flavor, mach_cmd):
                 PingServer,  # needs to come before Profile
                 BinarySetup,  # needs to come before macos
                 MacosDevice,
-                MLServicesProxy,
+                RemoteSettingsProxy,
+                ModelHubProxy,
                 Profile,
                 ProxyRunner,
                 AndroidDevice,
