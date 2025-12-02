@@ -16,7 +16,7 @@ class EvalCommand(MachCommandBase):
     )
     @CommandArgument(
         "paths",
-        nargs="+",
+        nargs="*",
         help="Eval test paths (files or directories).",
     )
     @CommandArgument(
@@ -29,6 +29,10 @@ class EvalCommand(MachCommandBase):
         if login:
             print("TODO (login)")
             return 0
+
+        if not paths:
+            print("Expected at least 1 path to an evaluation script")
+            return 1
 
         # Forward directly to perftest, preserving only the provided paths.
         return self._mach_context.commands.dispatch(
