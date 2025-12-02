@@ -78,7 +78,7 @@ add_task(async function test_full_page_e2e_eval() {
 
   // TODO - Do not use a timeout, wait for the elements to be all mutated instead.
   // eslint-disable-next-line mozilla/no-arbitrary-setTimeout
-  await new Promise(resolve => setTimeout(resolve, 2000));
+  await new Promise(resolve => setTimeout(resolve, 3000));
 
   const translatedText = await getPageText();
   Assert.notEqual(sourceText, translatedText, "The text was translated.");

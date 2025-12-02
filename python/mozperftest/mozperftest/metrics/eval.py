@@ -2,7 +2,10 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 import json
+import os
 from pathlib import Path
+
+import requests
 
 from mozperftest.layers import Layer
 from mozperftest.utils import install_package
@@ -93,4 +96,41 @@ class EvalMetrics(Layer):
                 "results": suite_results,
             }
         )
+
+        token = os.environ.get("MOZ_FXA_BEARER_TOKEN")
+        # TODO - Use fastly endpoint?
+        endpoint = "https://mlpa-nonprod-stage-mozilla.global.ssl.fastly.net/v1/chat/completions"
+        # This is th
+        endpoint = "https://mlpa-stage.llm-proxy.nonprod.dataservices.mozgcp.net/v1/chat/completions"
+        if token:
+            try:
+                resp = requests.post(
+                    endpoint,
+                    headers={
+                        "authorization": f"Bearer {token}",
+                        "content-type": "application/json",
+                        "service-type": "ai",
+                    },
+                    json={
+                        "model": "vertex_ai/mistral-small-2503",
+                        "messages": [
+                            {
+                                "role": "system",
+                                "content": "You are a helpful assistant.",
+                            },
+                            {"role": "user", "content": "Say hello world."},
+                        ],
+                        "stream": False,
+                    },
+                    timeout=15,
+                )
+                snippet = resp.text[:200]
+                # Escape braces because mozlog formatting uses str.format().
+                safe_snippet = snippet.replace("{", "{{").replace("}", "}}")
+                self.info(
+                    f"LLM stub call status={resp.status_code} body={safe_snippet}"
+                )
+            except Exception as exc:
+                self.info(f"LLM stub call failed: {exc}")
+
         return metadata
