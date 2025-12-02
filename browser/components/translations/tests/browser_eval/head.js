@@ -35,6 +35,15 @@ async function setupEvaluation({
   systemLocales = ["en"],
   webLanguages,
 }) {
+  const bearerToken = Services.env.get("MOZ_FXA_BEARER_TOKEN");
+  if (bearerToken) {
+    info("MOZ_FXA_BEARER_TOKEN is set; LLM judge can be called.");
+  } else {
+    throw new Error(
+      "MOZ_FXA_BEARER_TOKEN is not set. Run `./mach eval --login` and eval the export to continue."
+    );
+  }
+
   const proxyURL = Services.env.get("ML_SERVICES_PROXY_URL");
   if (!proxyURL) {
     throw new Error(
