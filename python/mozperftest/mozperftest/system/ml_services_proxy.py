@@ -26,18 +26,6 @@ HOP_BY_HOP_HEADERS = {
 }
 
 
-def _parse_routes(raw_routes):
-    routes = []
-    for entry in raw_routes or []:
-        if "=" not in entry:
-            raise ValueError(f"Invalid route {entry}, expected prefix=url")
-        prefix, target = entry.split("=", 1)
-        if not prefix.startswith("/"):
-            prefix = "/" + prefix
-        routes.append((prefix, target))
-    return routes
-
-
 def _normalize_base(url):
     if not url:
         return DEFAULT_REMOTE_SETTINGS
