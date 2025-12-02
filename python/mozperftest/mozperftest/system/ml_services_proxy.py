@@ -8,12 +8,11 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urljoin, urlparse, urlsplit
 
-import requests
-
 from mozperftest.layers import Layer
 
 
 DEFAULT_REMOTE_SETTINGS = "https://firefox.settings.services.mozilla.com/v1"
+DEFAULT_MODEL_HUB = "https://model-hub.mozilla.org"
 HOP_BY_HOP_HEADERS = {
     "connection",
     "host",
@@ -57,10 +56,15 @@ class MLServicesProxy(Layer):
         super().__init__(env, mach_cmd)
         self.server = None
         self.thread = None
+        self.server_model_hub = None
+        self.thread_model_hub = None
         self.request_log = []
         self.bound_host = None
         self.bound_port = None
+        self.bound_model_host = None
+        self.bound_model_port = None
         self.local_base = None
+        self.model_hub_base = None
         self.attachments_upstream = None
         self.errors = []
 
@@ -88,7 +92,7 @@ class MLServicesProxy(Layer):
         if handler.command != "HEAD":
             handler.wfile.write(data)
 
-    def _forward(self, handler, upstream, parsed):
+    def _forward(self, handler, upstream, parsed, upstream_name="settings"):
         base = upstream if upstream.endswith("/") else upstream + "/"
         target_url = urljoin(base, parsed.path)
         if parsed.query:
@@ -102,7 +106,9 @@ class MLServicesProxy(Layer):
             if k.lower() not in HOP_BY_HOP_HEADERS
         }
 
-        self.info(f"[ml-services-proxy] {handler.command} {target_url}")
+        self.info(
+            f"[ml-services-proxy][{upstream_name}] {handler.command} {target_url}"
+        )
         resp = requests.request(
             method=handler.command,
             url=target_url,
@@ -114,10 +120,11 @@ class MLServicesProxy(Layer):
         if resp.status_code >= 400:
             sample = content[:200].decode("utf-8", "replace")
             self.error(
-                f"Proxy upstream error {resp.status_code} for {handler.command} {target_url}: {sample}"
+                f"[{upstream_name}] Proxy upstream error {resp.status_code} for {handler.command} {target_url}: {sample}"
             )
             self.errors.append(
                 {
+                    "upstream": upstream_name,
                     "path": parsed.path,
                     "status": resp.status_code,
                     "target": target_url,
@@ -150,34 +157,35 @@ class MLServicesProxy(Layer):
             handler.wfile.write(content)
 
     def run(self, metadata):
-        upstream = _normalize_base(DEFAULT_REMOTE_SETTINGS)
-        routes = [("/v1", upstream)]
+        settings_upstream = _normalize_base(DEFAULT_REMOTE_SETTINGS)
+        model_hub_upstream = _normalize_base(DEFAULT_MODEL_HUB)
+        routes = [("/v1", settings_upstream)]
         fixtures = []
         host = "127.0.0.1"
         port = 0
         timeout = 30.0
 
-        upstream_path = urlparse(upstream).path or "/"
+        upstream_path = urlparse(settings_upstream).path or "/"
         upstream_path = upstream_path.rstrip("/") or "/"
 
         def resolve(parsed):
             req_path = parsed.path.rstrip("/") or "/"
             if req_path == upstream_path:
-                return ("root", upstream_path, upstream)
+                return ("root", upstream_path, settings_upstream)
             cdn_prefix = f"{upstream_path}/cdn/"
             if parsed.path.startswith(cdn_prefix):
-                return ("cdn", cdn_prefix, upstream)
+                return ("cdn", cdn_prefix, settings_upstream)
             for prefix, root in fixtures:
                 if parsed.path.startswith(prefix):
                     return ("fixture", prefix, root)
             for prefix, target in routes:
                 if parsed.path.startswith(prefix):
                     return ("proxy", prefix, target)
-            return ("proxy", None, upstream)
+            return ("proxy", None, settings_upstream)
 
         proxy = self
 
-        class Handler(BaseHTTPRequestHandler):
+        class SettingsHandler(BaseHTTPRequestHandler):
             protocol_version = "HTTP/1.1"
 
             def log_message(self, fmt, *args):
@@ -217,7 +225,9 @@ class MLServicesProxy(Layer):
                 try:
                     if mode == "root":
                         upstream_root = (
-                            upstream if upstream.endswith("/") else upstream + "/"
+                            settings_upstream
+                            if settings_upstream.endswith("/")
+                            else settings_upstream + "/"
                         )
                         resp = requests.get(upstream_root, timeout=30.0)
                         data = resp.json()
@@ -266,7 +276,9 @@ class MLServicesProxy(Layer):
                         if parsed.query:
                             target_url = f"{target_url}?{parsed.query}"
 
-                        proxy.info(f"[ml-services-proxy] {self.command} {target_url}")
+                        proxy.info(
+                            f"[ml-services-proxy][settings] {self.command} {target_url}"
+                        )
 
                         content_length = int(self.headers.get("Content-Length", 0))
                         body = (
@@ -290,10 +302,11 @@ class MLServicesProxy(Layer):
                         if resp.status_code >= 400:
                             sample = content[:200].decode("utf-8", "replace")
                             proxy.error(
-                                f"Proxy upstream error {resp.status_code} for attachments {self.command} {target_url}: {sample}"
+                                f"[settings] Proxy upstream error {resp.status_code} for attachments {self.command} {target_url}: {sample}"
                             )
                             proxy.errors.append(
                                 {
+                                    "upstream": "settings",
                                     "path": parsed.path,
                                     "status": resp.status_code,
                                     "target": target_url,
@@ -325,10 +338,11 @@ class MLServicesProxy(Layer):
                     elif mode == "fixture":
                         proxy._serve_fixture(self, prefix, target, parsed)
                     else:
-                        proxy._forward(self, target, parsed)
+                        proxy._forward(self, target, parsed, upstream_name="settings")
                 except Exception as exc:
                     proxy.errors.append(
                         {
+                            "upstream": "settings",
                             "path": parsed.path,
                             "status": 502,
                             "target": target,
@@ -336,30 +350,103 @@ class MLServicesProxy(Layer):
                         }
                     )
                     proxy.error(
-                        f"Proxy exception for {self.command} {self.path}: {exc}"
+                        f"[settings] Proxy exception for {self.command} {self.path}: {exc}"
                     )
                     self.send_error(502, explain=str(exc))
 
-        self.server = ThreadingHTTPServer((host, port), Handler)
+        class ModelHubHandler(BaseHTTPRequestHandler):
+            protocol_version = "HTTP/1.1"
+
+            def log_message(self, fmt, *args):
+                entry = {
+                    "client": self.client_address[0],
+                    "method": self.command,
+                    "path": self.path,
+                    "message": fmt % args,
+                }
+                proxy.request_log.append(entry)
+
+            def do_HEAD(self):
+                self._handle()
+
+            def do_GET(self):
+                self._handle()
+
+            def do_POST(self):
+                self._handle()
+
+            def do_PUT(self):
+                self._handle()
+
+            def do_DELETE(self):
+                self._handle()
+
+            def _handle(self):
+                parsed = urlsplit(self.path)
+                entry = {
+                    "method": self.command,
+                    "path": self.path,
+                    "mode": "model-hub",
+                    "target": model_hub_upstream,
+                }
+                proxy.request_log.append(entry)
+                try:
+                    proxy._forward(
+                        self, model_hub_upstream, parsed, upstream_name="model-hub"
+                    )
+                except Exception as exc:
+                    proxy.errors.append(
+                        {
+                            "upstream": "model-hub",
+                            "path": parsed.path,
+                            "status": 502,
+                            "target": model_hub_upstream,
+                            "sample": str(exc),
+                        }
+                    )
+                    proxy.error(
+                        f"[model-hub] Proxy exception for {self.command} {self.path}: {exc}"
+                    )
+                    self.send_error(502, explain=str(exc))
+
+        self.server = ThreadingHTTPServer((host, port), SettingsHandler)
         self.server.timeout = timeout
         self.bound_host, self.bound_port = self.server.server_address
-        self.local_base = (
-            f"http://{self.bound_host}:{self.bound_port}{urlparse(upstream).path}"
-        )
+        self.local_base = f"http://{self.bound_host}:{self.bound_port}{urlparse(settings_upstream).path}"
 
         self.thread = threading.Thread(target=self.server.serve_forever)
         self.thread.daemon = True
         self.thread.start()
 
+        self.server_model_hub = ThreadingHTTPServer((host, port), ModelHubHandler)
+        self.server_model_hub.timeout = timeout
+        self.bound_model_host, self.bound_model_port = (
+            self.server_model_hub.server_address
+        )
+        self.model_hub_base = f"http://{self.bound_model_host}:{self.bound_model_port}/"
+
+        self.thread_model_hub = threading.Thread(
+            target=self.server_model_hub.serve_forever
+        )
+        self.thread_model_hub.daemon = True
+        self.thread_model_hub.start()
+
         browser_prefs = metadata.get_options("browser_prefs")
         browser_prefs["services.settings.server"] = self.local_base
+        browser_prefs["browser.ml.modelHubRootUrl"] = self.model_hub_base
         metadata.update_options(
             "extra_prefs",
-            {"services.settings.server": self.local_base},
+            {
+                "services.settings.server": self.local_base,
+                "browser.ml.modelHubRootUrl": self.model_hub_base,
+            },
         )
         os.environ["MOZ_REMOTE_SETTINGS_DEVTOOLS"] = "1"
+        os.environ["ML_SERVICES_PROXY_REMOTE_SETTINGS"] = self.local_base
+        os.environ["ML_SERVICES_PROXY_MODEL_HUB"] = self.model_hub_base
         os.environ["ML_SERVICES_PROXY_URL"] = self.local_base
-        self.info(f"[ml-services-proxy] Running proxy at: {self.local_base}")
+        self.info(f"[ml-services-proxy] Settings proxy at: {self.local_base}")
+        self.info(f"[ml-services-proxy] Model hub proxy at: {self.model_hub_base}")
         return metadata
 
     def teardown(self):
@@ -367,9 +454,14 @@ class MLServicesProxy(Layer):
             self.server.shutdown()
             self.thread.join()
             self.server.server_close()
+        if self.server_model_hub is not None:
+            self.server_model_hub.shutdown()
+            self.thread_model_hub.join()
+            self.server_model_hub.server_close()
         # Optional future: persist request logs if we want to inspect them.
         if self.errors:
             first = self.errors[0]
             raise RuntimeError(
-                f"ML services proxy saw upstream errors, first: {first['status']} {first['target']} ({first['sample']})"
+                f"ML services proxy saw upstream errors ({first.get('upstream','unknown')}): "
+                f"{first['status']} {first['target']} ({first['sample']})"
             )
