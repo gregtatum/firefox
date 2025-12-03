@@ -112,3 +112,12 @@ class EvalToolsCommand(MachCommandBase):
         print("Copy and paste the following in your terminal to persist your login:\n")
         print(f"export MOZ_FXA_BEARER_TOKEN='{token}'")
         return 0
+
+    @SubCommand(
+        "eval-tools",
+        "snapshot",
+        description="Generate SingleFile snapshots of some web history",
+    )
+    def eval_tools_snapshot(self):
+        print("Not implemented yet.")
+        return 0
