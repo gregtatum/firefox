@@ -3,8 +3,8 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
 import argparse
-import getpass
-import os
+from pathlib import Path
+import sys
 
 from mach.decorators import Command, CommandArgument, SubCommand
 from mozbuild.base import MachCommandBase
@@ -69,55 +69,19 @@ class EvalToolsCommand(MachCommandBase):
         "login",
         description="Login helper to fetch a bearer token (interactive).",
     )
-    def eval_tools_login(self):
-        if os.environ.get("MOZ_FXA_BEARER_TOKEN"):
-            print("MOZ_FXA_BEARER_TOKEN already set; skipping login.")
-            print("Unset with: unset MOZ_FXA_BEARER_TOKEN")
-            return 0
+    def eval_tools_login(command_context):
+        sys.path.append(str(Path(command_context.topsrcdir) / "toolkit/components/ml"))
+        from eval.login import login
 
-        print("Login to your Firefox Account (accounts.firefox.com)")
-        email = input("Email: ").strip()
-        password = getpass.getpass("Password: ").strip()
-        if not email or not password:
-            print("Email and password are required.")
-            return 1
-
-        self.activate_virtualenv()
-        try:
-            from fxa.tools.bearer import get_bearer_token
-        except ModuleNotFoundError:
-            try:
-                self.virtualenv_manager.install_pip_package("PyFxA==0.8.1")
-                from fxa.tools.bearer import get_bearer_token
-            except Exception as exc:
-                print(
-                    f"Failed to install 'fxa' package automatically: {exc}\n"
-                    "You can install it manually with: ./mach python -m pip install fxa"
-                )
-                return 1
-
-        try:
-            token = get_bearer_token(
-                email,
-                password,
-                scopes=["profile"],
-                client_id="5882386c6d801776",
-                account_server_url="https://api.accounts.firefox.com",
-                oauth_server_url="https://oauth.accounts.firefox.com",
-            )
-        except Exception as exc:
-            print(f"Login failed: {exc}")
-            return 1
-
-        print("Copy and paste the following in your terminal to persist your login:\n")
-        print(f"export MOZ_FXA_BEARER_TOKEN='{token}'")
-        return 0
+        return login(command_context)
 
     @SubCommand(
         "eval-tools",
         "snapshot",
         description="Generate SingleFile snapshots of some web history",
     )
-    def eval_tools_snapshot(self):
-        print("Not implemented yet.")
-        return 0
+    def eval_tools_snapshot(command_context):
+        sys.path.append(str(Path(command_context.topsrcdir) / "toolkit/components/ml"))
+        from eval.snapshot import snapshot
+
+        return snapshot(command_context)
