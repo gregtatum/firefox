@@ -2,6 +2,7 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
+import argparse
 import getpass
 
 from mach.decorators import Command, CommandArgument
@@ -28,7 +29,12 @@ class EvalCommand(MachCommandBase):
         default=False,
         help="Login helper to fetch a bearer token (interactive).",
     )
-    def run_eval(self, paths, login=False):
+    @CommandArgument(
+        "extra_args",
+        nargs=argparse.REMAINDER,
+        help="Additional mochitest arguments passed through to perftest.",
+    )
+    def run_eval(self, paths, login=False, extra_args=None):
         if login:
             if os.environ.get("MOZ_FXA_BEARER_TOKEN"):
                 print("MOZ_FXA_BEARER_TOKEN already set; skipping login.")
@@ -80,9 +86,20 @@ class EvalCommand(MachCommandBase):
             print("Expected at least 1 path to an evaluation script")
             return 1
 
-        # Forward directly to perftest, preserving only the provided paths.
+        test_path, *extra_paths = paths
+
+        passthrough_args = extra_paths + (extra_args or [])
+        if passthrough_args:
+            # Strip leading dashes so mochitest args match perftest expectations.
+            passthrough_args = [arg.lstrip("-") for arg in passthrough_args]
+
+        perftest_args = [test_path]
+        if passthrough_args:
+            perftest_args.extend(["--mochitest-extra-args", *passthrough_args])
+
+        # Forward directly to perftest with translated mochitest arguments.
         return self._mach_context.commands.dispatch(
             "perftest",
             self._mach_context,
-            list(paths),
+            perftest_args,
         )
