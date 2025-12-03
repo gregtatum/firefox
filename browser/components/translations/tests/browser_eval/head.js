@@ -164,3 +164,33 @@ function reportEvalResult(data) {
   dump(JSON.stringify(data, null, 2));
   dump("\n");
 }
+
+/**
+ * Wait for every element in the selector to have been mutated once.
+ *
+ * @param {MozBrowser} browser
+ * @param {string} selector
+ * @returns {Promise<void>}
+ */
+function waitForMutations(browser, selector) {
+  return SpecialPowers.spawn(browser, [selector], async selector => {
+    const elements = new Set(content.document.querySelectorAll(selector));
+
+    await new Promise(resolve => {
+      for (const element of elements) {
+        const observer = new content.MutationObserver(mutations => {
+          elements.delete(element);
+          observer.disconnect();
+          if (elements.size === 0) {
+            resolve();
+          }
+        });
+        observer.observe(content.document.querySelector("article"), {
+          subtree: true,
+          characterData: true,
+          childList: true,
+        });
+      }
+    });
+  });
+}

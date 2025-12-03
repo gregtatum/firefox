@@ -63,6 +63,8 @@ add_task(async function test_full_page_e2e_eval() {
 
   const sourceText = await getPageText();
 
+  const articleTranslated = waitForMutations(tab.linkedBrowser, "article > *");
+
   await FullPageTranslationsTestUtils.assertTranslationsButton(
     { button: true, circleArrows: false, locale: false, icon: true },
     "The translations button is available."
@@ -76,9 +78,7 @@ add_task(async function test_full_page_e2e_eval() {
 
   await FullPageTranslationsTestUtils.clickTranslateButton();
 
-  // TODO - Do not use a timeout, wait for the elements to be all mutated instead.
-  // eslint-disable-next-line mozilla/no-arbitrary-setTimeout
-  await new Promise(resolve => setTimeout(resolve, 3000));
+  await articleTranslated;
 
   const translatedText = await getPageText();
   Assert.notEqual(sourceText, translatedText, "The text was translated.");
