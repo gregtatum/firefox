@@ -85,8 +85,27 @@ class EvalToolsCommand(MachCommandBase):
         action="store_true",
         help="Run the browser in headless mode.",
     )
-    def eval_tools_snapshot(command_context, headless=False):
+    @CommandArgument(
+        "--name",
+        dest="snapshot_name",
+        default="snapshot",
+        help="Name used to organize saved snapshots.",
+    )
+    @CommandArgument(
+        "--persona",
+        dest="persona_url",
+        default=None,
+        help="URL or local path to a JSON file containing URLs to snapshot.",
+    )
+    def eval_tools_snapshot(
+        command_context, headless=False, snapshot_name="snapshot", persona_url=None
+    ):
         sys.path.append(str(Path(command_context.topsrcdir) / "toolkit/components/ml"))
         from eval.snapshot import run_snapshot
 
-        run_snapshot(command_context, headless=headless)
+        run_snapshot(
+            command_context,
+            headless=headless,
+            snapshot_name=snapshot_name,
+            persona_url=persona_url,
+        )

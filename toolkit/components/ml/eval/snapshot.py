@@ -8,14 +8,21 @@ import os
 import sys
 import tempfile
 import time
+import json
 from typing import Any, Optional
 import zipfile
-from urllib.request import urlretrieve
+from urllib.request import urlretrieve, urlopen
+from urllib.parse import urlparse
 
 
-def run_snapshot(command_context, headless: bool):
+def run_snapshot(
+    command_context,
+    headless: bool,
+    snapshot_name: str = "snapshot",
+    persona_url: Optional[str] = None,
+):
     """Entry point for the mach subcommand."""
-    snapshot = Snapshot(command_context, headless)
+    snapshot = Snapshot(command_context, headless, snapshot_name, persona_url)
     return snapshot.run()
 
 
@@ -30,12 +37,21 @@ class Snapshot:
         addon_id: Installed SingleFile extension id.
         extension_base_url: moz-extension base URL for the installed SingleFile.
         singlefile_lib: Inline JavaScript source for SingleFile.
+        snapshot_name: Label used to organize saved snapshots.
     """
 
-    def __init__(self, command_context, headless: bool):
+    def __init__(
+        self,
+        command_context,
+        headless: bool,
+        snapshot_name: str,
+        persona_url: Optional[str],
+    ):
         """Initialize with the command context and headless flag."""
         self.command_context = command_context
         self.headless = headless
+        self.snapshot_name = snapshot_name
+        self.persona_url = persona_url
         self.marionette = None
         self.download_dir = None
         self.addon_id = None
@@ -51,12 +67,8 @@ class Snapshot:
                 self.addon_id,
                 self.extension_base_url,
                 self.singlefile_lib,
-            ) = Snapshot.setup_marionette(self.command_context, self.headless)
-            urls = [
-                "https://gregtatum.com/writing/2024/translations/",
-                "https://gregtatum.com/writing/2021/diacritical-marks/",
-                "https://gregtatum.com/writing/2021/encoding-text-utf-8-unicode/",
-            ]
+            ) = self.setup_marionette(self.command_context, self.headless)
+            urls = self._load_urls()
             saved_files = []
             for index, url in enumerate(urls):
                 self.marionette.navigate(url)
@@ -81,16 +93,16 @@ class Snapshot:
         print("Snapshot prototype completed.")
         return 0
 
-    @staticmethod
     def setup_marionette(
-        command_context, headless: bool
+        self, command_context, headless: bool
     ) -> tuple[Any, Path, str, str, str]:
         """Create a Marionette session, install SingleFile, and return session data."""
         command_context.activate_virtualenv()
         eval_tools_dir = Path(command_context.topobjdir) / "eval-tools"
-        eval_tools_dir.mkdir(parents=True, exist_ok=True)
+        snapshots_dir = eval_tools_dir / "snapshots" / self.snapshot_name
+        snapshots_dir.mkdir(parents=True, exist_ok=True)
 
-        download_dir = eval_tools_dir / "downloads"
+        download_dir = eval_tools_dir / "download"
         download_dir.mkdir(parents=True, exist_ok=True)
         addon_path, singlefile_lib = Snapshot.setup_singlefile_addon(eval_tools_dir)
         Marionette, Addons = Snapshot.import_marionette(command_context)
@@ -126,6 +138,42 @@ class Snapshot:
             print(f"SingleFile base URL: {base_url}")
 
         return marionette, download_dir, addon_id, base_url, singlefile_lib
+
+    def _load_urls(self) -> list[str]:
+        """Return URLs to snapshot, optionally from a persona JSON."""
+        if not self.persona_url:
+            raise RuntimeError("Persona URL is required for snapshotting.")
+
+        eval_tools_dir = Path(self.command_context.topobjdir) / "eval-tools"
+        persona_dir = eval_tools_dir / "personas"
+        persona_dir.mkdir(parents=True, exist_ok=True)
+        parsed = urlparse(self.persona_url)
+        persona_path = persona_dir / "persona.json"
+        try:
+            if parsed.scheme in ("http", "https"):
+                urlretrieve(self.persona_url, persona_path)
+            else:
+                persona_path = Path(self.persona_url)
+            data = json.loads(persona_path.read_text())
+        except Exception as exc:
+            raise RuntimeError(f"Failed to load persona URLs: {exc}")
+
+        if isinstance(data, list):
+            urls = []
+            for entry in data:
+                if isinstance(entry, str):
+                    urls.append(entry)
+                elif isinstance(entry, dict) and entry.get("url"):
+                    urls.append(entry["url"])
+        elif isinstance(data, dict):
+            urls = data.get("urls") or data.get("pages") or []
+        else:
+            urls = []
+
+        urls = [u for u in urls if isinstance(u, str) and u.strip()]
+        if not urls:
+            raise RuntimeError("Persona file did not contain any URLs")
+        return urls
 
     @staticmethod
     def import_marionette(command_context):
@@ -208,21 +256,35 @@ class Snapshot:
 
         data = result.get("data", {})
         content = data.get("content") or data.get("html") or data.get("pageData")
-        filename = data.get("filename") or f"singlefile-{index+1}.html"
-        if not filename.endswith(".html"):
-            filename = f"{filename}.html"
-        safe_base = "".join(
-            ch if ch.isalnum() or ch in "._-" else "_" for ch in filename
+        parsed = urlparse(url)
+        host = parsed.hostname or "unknown_host"
+        path = parsed.path or ""
+        path = path.lstrip("/")
+        if not path or path.endswith("/"):
+            path = path.rstrip("/") + "/index.html"
+        if parsed.query:
+            safe_query = "".join(
+                ch if ch.isalnum() or ch in "._-" else "_" for ch in parsed.query
+            )
+            path = f"{path}__{safe_query}"
+        safe_path = "".join(ch if ch.isalnum() or ch in "._-/" else "_" for ch in path)
+        safe_file = safe_path.replace("/", "_")
+        if not safe_file.endswith(".html"):
+            safe_file = f"{safe_file}.html"
+        target_dir = (
+            Path(self.command_context.topobjdir)
+            / "eval-tools"
+            / "snapshots"
+            / self.snapshot_name
+            / host
         )
-        safe_name = f"{index+1:02d}-{safe_base}"
-        if not safe_name:
-            safe_name = f"page-{index+1}.html"
+        target_dir.mkdir(parents=True, exist_ok=True)
+        target = target_dir / safe_file
         if not isinstance(content, str):
             raise RuntimeError(
                 f"SingleFile returned unexpected payload keys: {result.get('keys')}"
             )
 
-        target = self.download_dir / safe_name
         target.write_text(content)
         return target
 
