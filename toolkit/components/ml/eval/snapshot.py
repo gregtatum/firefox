@@ -114,15 +114,9 @@ class Snapshot:
             addon_id = addons.install(str(addon_path), temp=True)
             print(f"Installed SingleFile addon id: {addon_id}")
             with marionette.using_context("chrome"):
+                base_url_script = (Path(__file__).parent / "get_base_url.js").read_text()
                 base_url = marionette.execute_script(
-                    """
-                    const { ExtensionParent } = ChromeUtils.importESModule(
-                      "resource://gre/modules/ExtensionParent.sys.mjs"
-                    );
-                    const ext = ExtensionParent.GlobalManager.getExtension(arguments[0]);
-                    return ext ? ext.baseURL : null;
-                    """,
-                    script_args=(addon_id,),
+                    base_url_script, script_args=(addon_id,)
                 )
         except Exception as exc:
             print(f"Failed to install addon: {exc}")
@@ -201,42 +195,9 @@ class Snapshot:
         assert self.download_dir
         assert self.singlefile_lib
         with self.marionette.using_context("content"):
+            save_script = (Path(__file__).parent / "singlefile_save.js").read_text()
             result = self.marionette.execute_async_script(
-                """
-                const libSource =
-                  arguments[0] +
-                  "\\n; if (typeof singlefile !== 'undefined') { window.singlefile = singlefile; }";
-                const callback = arguments[arguments.length - 1];
-                (async () => {
-                  try {
-                    const win = window.wrappedJSObject || window;
-                    if (!win.singlefile || !win.singlefile.getPageData) {
-                      const script = win.document.createElement("script");
-                      script.type = "text/javascript";
-                      script.textContent = libSource;
-                      win.document.documentElement.appendChild(script);
-                      script.remove();
-                    }
-                    if (!win.singlefile || !win.singlefile.getPageData) {
-                      throw new Error("SingleFile library not available on window");
-                    }
-                    const data = await win.singlefile.getPageData({});
-                    const keys = data && typeof data === "object" ? Object.keys(data) : [];
-                    callback({ ok: true, data, keys });
-                  } catch (error) {
-                    const globals = Object.keys(window).filter(k =>
-                      k.toLowerCase().includes("single")
-                    );
-                    callback({
-                      ok: false,
-                      error: error && error.stack ? error.stack : String(error),
-                      globals,
-                      name: error && error.name ? error.name : null,
-                      message: error && error.message ? error.message : null,
-                    });
-                  }
-                })();
-                """,
+                save_script,
                 script_args=(self.singlefile_lib,),
                 new_sandbox=False,
             )
