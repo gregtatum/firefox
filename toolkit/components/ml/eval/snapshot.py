@@ -74,19 +74,25 @@ class Snapshot:
                 self.singlefile_lib,
             ) = self.setup_marionette(self.command_context, self.headless)
             urls = self._load_urls()
+            print(f"[snapshot] Loaded {len(urls)} URLs to snapshot.")
             saved_files = []
             for index, url in enumerate(urls):
-                self.marionette.navigate(url)
-                self._wait_for_ready_state()
-                new_file = self._trigger_singlefile_save(url, index)
-                if new_file:
-                    saved_files.append(new_file)
+                print(f"[snapshot] [{index+1}/{len(urls)}] Navigating to {url}")
+                try:
+                    self.marionette.navigate(url)
+                    self._wait_for_ready_state()
+                    new_file = self._trigger_singlefile_save(url, index)
+                    if new_file:
+                        print(f"[snapshot] Saved snapshot: {new_file}")
+                        saved_files.append(new_file)
+                except Exception as exc:
+                    print(f"[snapshot] Skipping {url}: {exc}")
             if saved_files:
-                print("Saved files:")
+                print("[snapshot] Saved files:")
                 for path in saved_files:
-                    print(f"- {path}")
+                    print(f"[snapshot] - {path}")
         except Exception as exc:
-            print(f"Snapshotting failed: {exc}")
+            print(f"[snapshot] Snapshotting failed: {exc}")
             return 1
         finally:
             if self.marionette:
@@ -95,7 +101,7 @@ class Snapshot:
                 except Exception:
                     pass
 
-        print("Snapshot prototype completed.")
+        print("[snapshot] Snapshot prototype completed.")
         return 0
 
     def setup_marionette(
@@ -112,6 +118,7 @@ class Snapshot:
         addon_path, singlefile_lib = Snapshot.setup_singlefile_addon(eval_tools_dir)
         Marionette, Addons = Snapshot.import_marionette(command_context)
         binary_path = command_context.get_binary_path()
+        print(f"[snapshot] Using binary at {binary_path}")
         marionette = Marionette(
             bin=binary_path,
             # When set to "-" Firefox's log goes out to stdout.
@@ -129,18 +136,19 @@ class Snapshot:
         addons = Addons(marionette)
         try:
             addon_id = addons.install(str(addon_path), temp=True)
-            print(f"Installed SingleFile addon id: {addon_id}")
+            print(f"[snapshot] Installed SingleFile addon id: {addon_id}")
             with marionette.using_context("chrome"):
-                base_url_script = (Path(__file__).parent / "get_base_url.js").read_text()
+                base_url_script = (
+                    Path(__file__).parent / "get_base_url.js"
+                ).read_text()
                 base_url = marionette.execute_script(
                     base_url_script, script_args=(addon_id,)
                 )
+                print(f"[snapshot] SingleFile base URL: {base_url}")
         except Exception as exc:
-            print(f"Failed to install addon: {exc}")
+            print(f"[snapshot] Failed to install addon: {exc}")
             marionette.cleanup()
             raise
-        if base_url:
-            print(f"SingleFile base URL: {base_url}")
 
         return marionette, download_dir, addon_id, base_url, singlefile_lib
 
@@ -249,14 +257,22 @@ class Snapshot:
         assert self.singlefile_lib
         with self.marionette.using_context("content"):
             save_script = (Path(__file__).parent / "singlefile_save.js").read_text()
-            result = self.marionette.execute_async_script(
-                save_script,
-                script_args=(self.singlefile_lib,),
-                new_sandbox=False,
-            )
+            print("[snapshot] Injecting SingleFile library and capturing page...")
+            try:
+                result = self.marionette.execute_async_script(
+                    save_script,
+                    script_args=(self.singlefile_lib,),
+                    new_sandbox=False,
+                )
+            except Exception as exc:
+                msg = str(exc)
+                if "Document was unloaded" in msg:
+                    print(f"[snapshot] Page unloaded while capturing {url}, skipping.")
+                    return None
+                raise
 
         if not result.get("ok"):
-            print(f"SingleFile execution failed: {result}")
+            print(f"[snapshot] SingleFile execution failed: {result}")
             raise RuntimeError(result.get("error", "Unknown SingleFile error"))
 
         data = result.get("data", {})
@@ -295,27 +311,29 @@ class Snapshot:
 
     def _wait_for_ready_state(self):
         """Wait until the current page finishes loading."""
-        script_timeout = self.page_timeout_ms + 2000
-        with self.marionette.using_context("content"):
-            self.marionette.execute_script(
-                """
-                return new Promise(resolve => {
-                  const timer = setTimeout(() => resolve(), arguments[0]);
-                  if (document.readyState === "complete") {
-                    clearTimeout(timer);
-                    resolve();
-                    return;
-                  }
-                  window.addEventListener(
-                    "load",
-                    () => {
-                      clearTimeout(timer);
-                      resolve();
-                    },
-                    { once: true }
-                  );
-                });
-                """,
-                script_args=(self.page_timeout_ms,),
-                script_timeout=script_timeout,
-            )
+        # Wait a little bit after navigating to let things settle.
+        time.sleep(5)
+
+        # with self.marionette.using_context("content"):
+        #     self.marionette.execute_script(
+        #         """
+        #         return new Promise(resolve => {
+        #           const timer = setTimeout(() => resolve(), arguments[0]);
+        #           if (document.readyState === "complete") {
+        #             clearTimeout(timer);
+        #             resolve();
+        #             return;
+        #           }
+        #           window.addEventListener(
+        #             "load",
+        #             () => {
+        #               clearTimeout(timer);
+        #               resolve();
+        #             },
+        #             { once: true }
+        #           );
+        #         });
+        #         """,
+        #         script_args=(self.page_timeout_ms,),
+        #         script_timeout=script_timeout,
+        #     )
