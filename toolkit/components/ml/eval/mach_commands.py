@@ -80,8 +80,13 @@ class EvalToolsCommand(MachCommandBase):
         "snapshot",
         description="Generate SingleFile snapshots of some web history",
     )
-    def eval_tools_snapshot(command_context):
+    @CommandArgument(
+        "--headless",
+        action="store_true",
+        help="Run the browser in headless mode.",
+    )
+    def eval_tools_snapshot(command_context, headless=False):
         sys.path.append(str(Path(command_context.topsrcdir) / "toolkit/components/ml"))
         from eval.snapshot import snapshot
 
-        return snapshot(command_context)
+        return snapshot(command_context, headless=headless)
