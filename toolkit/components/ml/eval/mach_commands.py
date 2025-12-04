@@ -87,6 +87,6 @@ class EvalToolsCommand(MachCommandBase):
     )
     def eval_tools_snapshot(command_context, headless=False):
         sys.path.append(str(Path(command_context.topsrcdir) / "toolkit/components/ml"))
-        from eval.snapshot import snapshot
+        from eval.snapshot import run_snapshot
 
-        return snapshot(command_context, headless=headless)
+        run_snapshot(command_context, headless=headless)
