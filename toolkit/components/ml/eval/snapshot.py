@@ -20,9 +20,12 @@ def run_snapshot(
     headless: bool,
     snapshot_name: str = "snapshot",
     persona_url: Optional[str] = None,
+    page_timeout_ms: int = 5000,
 ):
     """Entry point for the mach subcommand."""
-    snapshot = Snapshot(command_context, headless, snapshot_name, persona_url)
+    snapshot = Snapshot(
+        command_context, headless, snapshot_name, persona_url, page_timeout_ms
+    )
     return snapshot.run()
 
 
@@ -46,12 +49,14 @@ class Snapshot:
         headless: bool,
         snapshot_name: str,
         persona_url: Optional[str],
+        page_timeout_ms: int,
     ):
         """Initialize with the command context and headless flag."""
         self.command_context = command_context
         self.headless = headless
         self.snapshot_name = snapshot_name
         self.persona_url = persona_url
+        self.page_timeout_ms = page_timeout_ms
         self.marionette = None
         self.download_dir = None
         self.addon_id = None
@@ -290,16 +295,27 @@ class Snapshot:
 
     def _wait_for_ready_state(self):
         """Wait until the current page finishes loading."""
+        script_timeout = self.page_timeout_ms + 2000
         with self.marionette.using_context("content"):
             self.marionette.execute_script(
                 """
                 return new Promise(resolve => {
+                  const timer = setTimeout(() => resolve(), arguments[0]);
                   if (document.readyState === "complete") {
+                    clearTimeout(timer);
                     resolve();
                     return;
                   }
-                  window.addEventListener("load", () => resolve(), { once: true });
+                  window.addEventListener(
+                    "load",
+                    () => {
+                      clearTimeout(timer);
+                      resolve();
+                    },
+                    { once: true }
+                  );
                 });
                 """,
-                script_timeout=60000,
+                script_args=(self.page_timeout_ms,),
+                script_timeout=script_timeout,
             )

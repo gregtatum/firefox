@@ -97,8 +97,19 @@ class EvalToolsCommand(MachCommandBase):
         default=None,
         help="URL or local path to a JSON file containing URLs to snapshot.",
     )
+    @CommandArgument(
+        "--timeout",
+        dest="page_timeout_ms",
+        type=int,
+        default=5000,
+        help="Max time in ms to wait for each page to reach readyState complete.",
+    )
     def eval_tools_snapshot(
-        command_context, headless=False, snapshot_name="snapshot", persona_url=None
+        command_context,
+        headless=False,
+        snapshot_name="snapshot",
+        persona_url=None,
+        page_timeout_ms=5000,
     ):
         sys.path.append(str(Path(command_context.topsrcdir) / "toolkit/components/ml"))
         from eval.snapshot import run_snapshot
@@ -108,4 +119,5 @@ class EvalToolsCommand(MachCommandBase):
             headless=headless,
             snapshot_name=snapshot_name,
             persona_url=persona_url,
+            page_timeout_ms=page_timeout_ms,
         )
