@@ -21,10 +21,16 @@ def run_snapshot(
     snapshot_name: str = "snapshot",
     persona_url: Optional[str] = None,
     page_timeout_ms: int = 5000,
+    clobber: bool = False,
 ):
     """Entry point for the mach subcommand."""
     snapshot = Snapshot(
-        command_context, headless, snapshot_name, persona_url, page_timeout_ms
+        command_context,
+        headless,
+        snapshot_name,
+        persona_url,
+        page_timeout_ms,
+        clobber,
     )
     return snapshot.run()
 
@@ -50,6 +56,7 @@ class Snapshot:
         snapshot_name: str,
         persona_url: Optional[str],
         page_timeout_ms: int,
+        clobber: bool,
     ):
         """Initialize with the command context and headless flag."""
         self.command_context = command_context
@@ -57,6 +64,7 @@ class Snapshot:
         self.snapshot_name = snapshot_name
         self.persona_url = persona_url
         self.page_timeout_ms = page_timeout_ms
+        self.clobber = clobber
         self.marionette = None
         self.download_dir = None
         self.addon_id = None
@@ -79,14 +87,23 @@ class Snapshot:
             for index, url in enumerate(urls):
                 print(f"[snapshot] [{index+1}/{len(urls)}] Navigating to {url}")
                 try:
+                    target = self._snapshot_target_path(url)
+                    if target.exists() and not self.clobber:
+                        print(f"[snapshot] Skipping existing snapshot: {target}")
+                        continue
                     self.marionette.navigate(url)
                     self._wait_for_ready_state()
-                    new_file = self._trigger_singlefile_save(url, index)
+                    new_file = self._trigger_singlefile_save(url, index, target)
                     if new_file:
                         print(f"[snapshot] Saved snapshot: {new_file}")
                         saved_files.append(new_file)
                 except Exception as exc:
-                    print(f"[snapshot] Skipping {url}: {exc}")
+                    print(f"[snapshot] Error on {url}: {exc}")
+                    error_path = target if "target" in locals() else None
+                    if error_path:
+                        error_path.parent.mkdir(parents=True, exist_ok=True)
+                        error_path.write_text(f"Error capturing {url}: {exc}")
+                        print(f"[snapshot] Wrote error file: {error_path}")
             if saved_files:
                 print("[snapshot] Saved files:")
                 for path in saved_files:
@@ -251,7 +268,36 @@ class Snapshot:
 
         return addon_path, singlefile_lib
 
-    def _trigger_singlefile_save(self, url: str, index: int) -> Optional[Path]:
+    def _snapshot_target_path(self, url: str) -> Path:
+        """Compute the target path for a URL based on host and path."""
+        parsed = urlparse(url)
+        host = parsed.hostname or "unknown_host"
+        path = parsed.path or ""
+        path = path.lstrip("/")
+        if not path or path.endswith("/"):
+            path = path.rstrip("/") + "/index.html"
+        if parsed.query:
+            safe_query = "".join(
+                ch if ch.isalnum() or ch in "._-" else "_" for ch in parsed.query
+            )
+            path = f"{path}__{safe_query}"
+        safe_path = "".join(ch if ch.isalnum() or ch in "._-/" else "_" for ch in path)
+        safe_file = safe_path.replace("/", "_")
+        if not safe_file.endswith(".html"):
+            safe_file = f"{safe_file}.html"
+        target_dir = (
+            Path(self.command_context.topobjdir)
+            / "eval-tools"
+            / "snapshots"
+            / self.snapshot_name
+            / host
+        )
+        target_dir.mkdir(parents=True, exist_ok=True)
+        return target_dir / safe_file
+
+    def _trigger_singlefile_save(
+        self, url: str, index: int, target: Path
+    ) -> Optional[Path]:
         """Inject SingleFile into the page and write the saved HTML to disk."""
         assert self.download_dir
         assert self.singlefile_lib
@@ -277,30 +323,6 @@ class Snapshot:
 
         data = result.get("data", {})
         content = data.get("content") or data.get("html") or data.get("pageData")
-        parsed = urlparse(url)
-        host = parsed.hostname or "unknown_host"
-        path = parsed.path or ""
-        path = path.lstrip("/")
-        if not path or path.endswith("/"):
-            path = path.rstrip("/") + "/index.html"
-        if parsed.query:
-            safe_query = "".join(
-                ch if ch.isalnum() or ch in "._-" else "_" for ch in parsed.query
-            )
-            path = f"{path}__{safe_query}"
-        safe_path = "".join(ch if ch.isalnum() or ch in "._-/" else "_" for ch in path)
-        safe_file = safe_path.replace("/", "_")
-        if not safe_file.endswith(".html"):
-            safe_file = f"{safe_file}.html"
-        target_dir = (
-            Path(self.command_context.topobjdir)
-            / "eval-tools"
-            / "snapshots"
-            / self.snapshot_name
-            / host
-        )
-        target_dir.mkdir(parents=True, exist_ok=True)
-        target = target_dir / safe_file
         if not isinstance(content, str):
             raise RuntimeError(
                 f"SingleFile returned unexpected payload keys: {result.get('keys')}"

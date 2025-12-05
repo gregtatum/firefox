@@ -104,12 +104,19 @@ class EvalToolsCommand(MachCommandBase):
         default=5000,
         help="Max time in ms to wait for each page to reach readyState complete.",
     )
+    @CommandArgument(
+        "--clobber",
+        action="store_true",
+        default=False,
+        help="Re-run snapshots even if the output file already exists.",
+    )
     def eval_tools_snapshot(
         command_context,
         headless=False,
         snapshot_name="snapshot",
         persona_url=None,
         page_timeout_ms=5000,
+        clobber=False,
     ):
         sys.path.append(str(Path(command_context.topsrcdir) / "toolkit/components/ml"))
         from eval.snapshot import run_snapshot
@@ -120,4 +127,5 @@ class EvalToolsCommand(MachCommandBase):
             snapshot_name=snapshot_name,
             persona_url=persona_url,
             page_timeout_ms=page_timeout_ms,
+            clobber=clobber,
         )
