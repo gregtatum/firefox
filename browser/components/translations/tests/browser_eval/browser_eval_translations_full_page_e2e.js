@@ -13,6 +13,7 @@ After sunset, lanterns guide them back to the cabin.
 const evalMetadata = {
   owner: "Translations Team",
   name: "Full-Page Translation E2E Eval",
+  persona: "https://example.com/personas/builder.zip",
   description:
     "End-to-end translation quality evaluation for full-page translations.",
   test: "mochitest",
@@ -24,7 +25,14 @@ const evalMetadata = {
   },
 };
 
+const { Persona } = ChromeUtils.importESModule(
+  "moz-src://toolkit/components/ml/eval/PersonaUtils.sys.mjs"
+);
+
+// Import EvalsLibrary
+
 add_task(async function test_full_page_e2e_eval() {
+  await Persona.create(evalMetadata);
   const markup = html`
     <article>
       <h1>Paseo guiado en el valle</h1>
@@ -91,4 +99,5 @@ add_task(async function test_full_page_e2e_eval() {
   });
 
   await cleanup();
+  await Persona.destroy();
 });

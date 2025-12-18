@@ -6,6 +6,7 @@ from mozperftest.test.alert import AlertTestRunner
 from mozperftest.test.androidlog import AndroidLog
 from mozperftest.test.browsertime import BrowsertimeRunner
 from mozperftest.test.mochitest import Mochitest
+from mozperftest.test.persona import Persona
 from mozperftest.test.shellscript import ShellScriptRunner
 from mozperftest.test.webpagetest import WebPageTest
 from mozperftest.test.xpcshell import XPCShell
@@ -17,6 +18,7 @@ def get_layers():
         AndroidLog,
         XPCShell,
         WebPageTest,
+        Persona,
         Mochitest,
         ShellScriptRunner,
         AlertTestRunner,
@@ -33,9 +35,9 @@ def pick_test(env, flavor, mach_cmd):
     if flavor == "webpagetest":
         return Layers(env, mach_cmd, (WebPageTest,))
     if flavor == "mochitest":
-        return Layers(env, mach_cmd, (Mochitest,))
+        return Layers(env, mach_cmd, (Persona, Mochitest))
     if flavor == "eval-mochitest":
-        return Layers(env, mach_cmd, (Mochitest,))
+        return Layers(env, mach_cmd, (Persona, Mochitest))
     if flavor == "custom-script":
         return Layers(env, mach_cmd, (ShellScriptRunner,))
     if flavor == "alert":
