@@ -7,13 +7,16 @@ from contextlib import redirect_stdout
 from pathlib import Path
 
 from mozperftest.layers import Layer
+from mozperftest.metadata import Metadata
 from mozperftest.test.functionaltestrunner import (
     FunctionalTestRunner,
 )
 from mozperftest.utils import (
-    METRICS_MATCHER,
+    EVAL_DATA_MATCHER,
     ON_TRY,
+    PERF_METRICS_MATCHER,
     LogProcessor,
+    NoEvalDataError,
     NoPerfMetricsError,
     install_requirements_file,
 )
@@ -52,7 +55,7 @@ class MochitestData:
     merge = transform
 
 
-class Mochitest(Layer):
+class _Mochitest(Layer):
     """Runs a mochitest test through `mach test` locally, and directly with mochitest in CI."""
 
     name = "mochitest"
@@ -106,7 +109,7 @@ class Mochitest(Layer):
         self.distdir = mach_cmd.distdir
         self.bindir = mach_cmd.bindir
         self.statedir = mach_cmd.statedir
-        self.metrics = []
+        self.payloads_from_log = []
         self.topsrcdir = mach_cmd.topsrcdir
 
     def setup(self):
@@ -281,7 +284,8 @@ class Mochitest(Layer):
             args.symbolsPath = str(Path(fetch_dir, "crashreporter-symbols"))
             args.certPath = str(Path(fetch_dir, "certs"))
 
-        log_processor = LogProcessor(METRICS_MATCHER)
+        log_processor = self._get_log_processor()
+
         with redirect_stdout(log_processor):
             if self.get_arg("android"):
                 result = runtestsremote.run_test_harness(parser, args)
@@ -290,14 +294,13 @@ class Mochitest(Layer):
 
         return result, log_processor
 
-    def run(self, metadata):
+    def run(self, metadata: Metadata):
         test = Path(metadata.script["filename"])
         if self.get_arg("name-change", False):
             test_name = metadata.script["name"]
         else:
             test_name = test.name
 
-        results = []
         cycles = self.get_arg("cycles", 1)
         for cycle in range(1, cycles + 1):
             metadata.run_hook(
@@ -320,14 +323,50 @@ class Mochitest(Layer):
             if status is not None and status != 0:
                 raise MochitestTestFailure("Test failed to run")
 
-            # Parse metrics found
-            for metrics_line in log_processor.match:
-                self.metrics.append(json.loads(metrics_line.split("|")[-1].strip()))
+            self._extract_payload_from_log(log_processor, metadata)
 
-        for m in self.metrics:
+        self._handle_payloads(metadata, test_name)
+
+        return metadata
+
+    @staticmethod
+    def _get_log_processor():
+        raise NotImplementedError
+
+    def _extract_payload_from_log(
+        self, log_processor: LogProcessor, metadata: Metadata
+    ):
+        """The payload for perftests and evals are output to the log, and extracted
+        into the mozperftest harness for processing."""
+        raise NotImplementedError
+
+    def _handle_payloads(self, metadata: Metadata, test_name: str):
+        """After the payloads are extracting from the log, handle the final processing."""
+        raise NotImplementedError
+
+
+class PerfMochitest(_Mochitest):
+    """A mochitest that collects the `perfResults` from stdout"""
+
+    @staticmethod
+    def _get_log_processor():
+        return LogProcessor(PERF_METRICS_MATCHER)
+
+    def _extract_payload_from_log(
+        self, log_processor: LogProcessor, metadata: Metadata
+    ):
+        """Parse metrics found"""
+        for metrics_line in log_processor.match:
+            self.payloads_from_log.append(
+                json.loads(metrics_line.split("|")[-1].strip())
+            )
+
+    def _handle_payloads(self, metadata: Metadata, test_name: str):
+        results = []
+        for payload in self.payloads_from_log:
             # Expecting results like {"metric-name": value, "metric-name2": value, ...}
-            if isinstance(m, dict):
-                for key, val in m.items():
+            if isinstance(payload, dict):
+                for key, val in payload.items():
                     for r in results:
                         if r["name"] == key:
                             r["values"].append(val)
@@ -339,7 +378,7 @@ class Mochitest(Layer):
             #     {"name": "metric-name2", "values": [value1, value2, ...], ...},
             # ]
             else:
-                for metric in m:
+                for metric in payload:
                     for r in results:
                         if r["name"] == metric["name"]:
                             r["values"].extend(metric["values"])
@@ -347,7 +386,7 @@ class Mochitest(Layer):
                     else:
                         results.append(metric)
 
-        if len(results) == 0:
+        if not results:
             raise NoPerfMetricsError("mochitest")
 
         metadata.add_result({
@@ -357,4 +396,50 @@ class Mochitest(Layer):
             "results": results,
         })
 
-        return metadata
+
+class EvalMochitest(_Mochitest):
+    """A mochitest that collects the `evalDataPayload` from stdout"""
+
+    @staticmethod
+    def _get_log_processor():
+        return LogProcessor(EVAL_DATA_MATCHER)
+
+    def _extract_payload_from_log(
+        self, log_processor: LogProcessor, metadata: Metadata
+    ):
+        """Parse the eval data payload from the log."""
+        for eval_line in log_processor.match:
+            self.payloads_from_log.append(
+                eval_line.partition("evalDataPayload")[2].strip()
+            )
+
+    def _handle_payloads(self, metadata: Metadata, test_name: str):
+        if not self.payloads_from_log:
+            raise NoEvalDataError("mochitest")
+
+        if len(self.payloads_from_log) > 1:
+            raise NotImplementedError(
+                "Multiple evaluation data payloads are currently supported."
+            )
+
+        data_payload = self.payloads_from_log[0]
+
+        output_dir = Path(self.get_arg("output")).resolve()
+        output_dir.mkdir(parents=True, exist_ok=True)
+        out_file = output_dir / f"{Path(test_name).stem}-eval-data.json"
+        pretty_json = json.dumps(json.loads(data_payload), indent=2)
+        out_file.write_text(pretty_json)
+        print(f"Evaluation data written to {out_file}")
+
+        metadata.add_result(
+            {
+                "name": test_name,
+                "framework": {"name": "mozperftest"},
+                "transformer": "mozperftest.test.mochitest:MochitestData",
+                # Just provide some dummy data for now.
+                "results": [
+                    {"name": "bleu", "values": [30.0]},
+                    {"name": "chrF", "values": [60.0]},
+                ],
+            }
+        )

@@ -4,6 +4,7 @@
 from collections import defaultdict
 from pathlib import Path
 
+from mozperftest.metadata import Metadata
 from mozperftest.metrics.exceptions import (
     MetricsMissingResultsError,
     MetricsMultipleTransformsError,
@@ -314,7 +315,7 @@ _metrics = {}
 
 
 def filtered_metrics(
-    metadata,
+    metadata: Metadata,
     path,
     prefix,
     group_name="firefox",

@@ -13,6 +13,7 @@ class Metadata(MachLogger):
         self.flavor = flavor
         self.options = defaultdict(dict)
         self._results = []
+        self._eval_data = []
         self._output = None
         self._env = env
         self.script = script
