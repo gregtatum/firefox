@@ -2,6 +2,7 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 from collections import defaultdict
+from typing import Any
 
 from mozperftest.utils import MachLogger
 
@@ -13,7 +14,7 @@ class Metadata(MachLogger):
         self.flavor = flavor
         self.options = defaultdict(dict)
         self._results = []
-        self._eval_data = []
+        self._eval_payloads: list[tuple[str, Any]] = []
         self._output = None
         self._env = env
         self.script = script
@@ -40,6 +41,12 @@ class Metadata(MachLogger):
 
     def clear_results(self):
         self._results = []
+
+    def add_eval_payload(self, test_name: str, payload: Any):
+        self._eval_payloads.append((test_name, payload))
+
+    def get_eval_payloads(self):
+        return self._eval_payloads
 
     def add_extra_options(self, options):
         self._extra_options.extend(options)

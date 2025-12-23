@@ -362,39 +362,29 @@ class PerfMochitest(_Mochitest):
             )
 
     def _handle_payloads(self, metadata: Metadata, test_name: str):
-        results = []
-        for payload in self.payloads_from_log:
-            # Expecting results like {"metric-name": value, "metric-name2": value, ...}
-            if isinstance(payload, dict):
-                for key, val in payload.items():
-                    for r in results:
-                        if r["name"] == key:
-                            r["values"].append(val)
-                            break
-                    else:
-                        results.append({"name": key, "values": [val]})
-            # Expecting results like [
-            #     {"name": "metric-name", "values": [value1, value2, ...], ...},
-            #     {"name": "metric-name2", "values": [value1, value2, ...], ...},
-            # ]
-            else:
-                for metric in payload:
-                    for r in results:
-                        if r["name"] == metric["name"]:
-                            r["values"].extend(metric["values"])
-                            break
-                    else:
-                        results.append(metric)
-
-        if not results:
+        payloads = self.payloads_from_log
+        if not payloads:
             raise NoPerfMetricsError("mochitest")
 
+<<<<<<< HEAD
         metadata.add_result({
             "name": test_name,
             "framework": {"name": "mozperftest"},
             "transformer": "mozperftest.test.mochitest:MochitestData",
             "results": results,
         })
+||||||| parent of a32a3dcfd367 (Bug 2006413 - Create an eval layer in mozperftest that runs python evals from toolkit/components/ml/evals)
+        metadata.add_result(
+            {
+                "name": test_name,
+                "framework": {"name": "mozperftest"},
+                "transformer": "mozperftest.test.mochitest:MochitestData",
+                "results": results,
+            }
+        )
+=======
+        metadata.add_eval_payload(test_name, payloads)
+>>>>>>> a32a3dcfd367 (Bug 2006413 - Create an eval layer in mozperftest that runs python evals from toolkit/components/ml/evals)
 
 
 class EvalMochitest(_Mochitest):
