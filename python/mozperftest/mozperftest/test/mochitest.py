@@ -3,6 +3,7 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 import json
 import os
+import re
 from contextlib import redirect_stdout
 from pathlib import Path
 
@@ -215,6 +216,10 @@ class _Mochitest(Layer):
 
         mochitest_args.extend(self._enable_gecko_profiling())
         mochitest_args.extend(self._parse_extra_args())
+
+        browser_prefs = metadata.get_options("browser_prefs")
+        for key, value in browser_prefs.items():
+            mochitest_args.append(f"--setpref={key}={value}")
 
         if self.get_arg("android"):
             mochitest_args.extend(self._setup_mochitest_android_args(metadata))
