@@ -5,6 +5,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include <algorithm>
+#include <cstdlib>
 
 #include "nsSocketTransport2.h"
 
@@ -22,6 +23,7 @@
 #include "mozilla/net/SSLTokensCache.h"
 #include "mozilla/ProfilerBandwidthCounter.h"
 #include "nsCOMPtr.h"
+#include "nsCharSeparatedTokenizer.h"
 #include "nsICancelable.h"
 #include "nsIClassInfoImpl.h"
 #include "nsIDNSByTypeRecord.h"
@@ -39,6 +41,7 @@
 #include "nsProxyInfo.h"
 #include "nsSocketProviderService.h"
 #include "nsStreamUtils.h"
+#include "nsString.h"
 #include "nsThreadUtils.h"
 #include "nsTransportUtils.h"
 #include "nsURLHelper.h"
@@ -1245,6 +1248,43 @@ static bool ShouldBlockAddress(const NetAddr& aAddr) {
            addrToCheck.IsIPAddrShared() || addrToCheck.IsLoopbackAddr());
 }
 
+static bool IsNonLocalHostAllowListed(const nsACString& aHost, int32_t aPort) {
+  if (aHost.IsEmpty()) {
+    return false;
+  }
+
+  char* allowlistEnv = PR_GetEnv("MOZ_NONLOCAL_ALLOWLIST");
+  if (!allowlistEnv || !*allowlistEnv) {
+    return false;
+  }
+
+  nsDependentCString allowlist(allowlistEnv);
+
+  nsAutoCString hostPort(aHost);
+  hostPort.Append(':');
+  hostPort.AppendInt(aPort);
+
+  nsCCharSeparatedTokenizer tokenizer(allowlist, ',');
+  while (tokenizer.hasMoreTokens()) {
+    nsAutoCString token(tokenizer.nextToken());
+    token.StripWhitespace();
+    if (token.IsEmpty()) {
+      continue;
+    }
+    if (token.Equals(hostPort, nsCaseInsensitiveCStringComparator)) {
+      // The host + port match.
+      return true;
+    }
+    if ((aPort == 80 || aPort == 443) &&
+        token.Equals(aHost, nsCaseInsensitiveCStringComparator)) {
+      // For port 80 or 443 match "example.com" without the port.
+      return true;
+    }
+  }
+
+  return false;
+}
+
 nsresult nsSocketTransport::InitiateSocket() {
   SOCKET_LOG(("nsSocketTransport::InitiateSocket [this=%p]\n", this));
   MOZ_ASSERT(OnSocketThread(), "not on socket thread");
@@ -1279,7 +1319,8 @@ nsresult nsSocketTransport::InitiateSocket() {
     }
 #endif
 
-    if (NS_SUCCEEDED(mCondition) && ShouldBlockAddress(mNetAddr)) {
+    if (NS_SUCCEEDED(mCondition) && ShouldBlockAddress(mNetAddr) &&
+        !IsNonLocalHostAllowListed(mHost, mPort)) {
       nsAutoCString ipaddr;
       RefPtr<nsNetAddr> netaddr = new nsNetAddr(&mNetAddr);
       netaddr->GetAddress(ipaddr);
@@ -1291,8 +1332,8 @@ nsresult nsSocketTransport::InitiateSocket() {
           "available via the test networking proxy (if running mochitests) "
           "or from a test-specific httpd.js server (if running xpcshell "
           "tests). "
-          "Browser services should be disabled or redirected to a local "
-          "server.\n",
+          "Browser services should be disabled, redirected to a local "
+          "server, or added to the allowlist via MOZ_NONLOCAL_ALLOWLIST.\n",
           mHost.get(), ipaddr.get());
       return NS_ERROR_NON_LOCAL_CONNECTION_REFUSED;
     }
