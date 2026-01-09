@@ -418,23 +418,17 @@ class EvalMochitest(_Mochitest):
             )
 
         data_payload = self.payloads_from_log[0]
+        parsed_payload = json.loads(data_payload)
+        if isinstance(parsed_payload, list):
+            eval_payloads = parsed_payload
+        else:
+            eval_payloads = [parsed_payload]
 
         output_dir = Path(self.get_arg("output")).resolve()
         output_dir.mkdir(parents=True, exist_ok=True)
         out_file = output_dir / f"{Path(test_name).stem}-eval-data.json"
-        pretty_json = json.dumps(json.loads(data_payload), indent=2)
+        pretty_json = json.dumps(parsed_payload, indent=2)
         out_file.write_text(pretty_json)
         print(f"Evaluation data written to {out_file}")
 
-        metadata.add_result(
-            {
-                "name": test_name,
-                "framework": {"name": "mozperftest"},
-                "transformer": "mozperftest.test.mochitest:MochitestData",
-                # Just provide some dummy data for now.
-                "results": [
-                    {"name": "bleu", "values": [30.0]},
-                    {"name": "chrF", "values": [60.0]},
-                ],
-            }
-        )
+        metadata.add_eval_payload(test_name, eval_payloads)

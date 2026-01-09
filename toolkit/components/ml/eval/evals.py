@@ -108,7 +108,7 @@ class _TranslationsSacreBleu(_Evaluation):
             trg = payload["trg"]
             ref = payload["ref"]
 
-            results.append(self.compute_score(trg, ref).score)
+            results.append(self.compute_score(trg, ref))
 
         if not results:
             raise ValueError(
@@ -185,10 +185,8 @@ class TranslationsLlmJudge(_LlmJudge):
     requirements = []
 
     def run(self, test_name: str, payloads: list[dict[str, Any]]):
-        self.log("!!! a")
         results: list[dict[str, Any]] = []
         for payload in payloads:
-            self.log("!!! b")
             missing = [key for key in ("src", "trg", "ref") if key not in payload]
             if missing:
                 raise ValueError(
@@ -203,7 +201,6 @@ class TranslationsLlmJudge(_LlmJudge):
                 'Return JSON with fields: score (0-100), verdict ("good"|"ok"|"bad"), explanation (short).'
             )
 
-            self.log("!!! c")
             payload = self.query_llm(
                 [
                     {
@@ -213,7 +210,6 @@ class TranslationsLlmJudge(_LlmJudge):
                     {"role": "user", "content": user_prompt},
                 ]
             )
-            self.log("!!! d")
 
             message = payload.get("choices", [{}])[0].get("message", {})
             content = message.get("content", "").strip()
@@ -237,7 +233,6 @@ class TranslationsLlmJudge(_LlmJudge):
                         f"Invalid score value in LLM judge response: {parsed}"
                     ) from exc
 
-            self.log("!!! e")
             results.append(
                 {
                     "score": score,
@@ -247,11 +242,9 @@ class TranslationsLlmJudge(_LlmJudge):
                 }
             )
 
-        self.log("!!! f")
         if not results:
             raise ValueError("No evaluation results were produced for LLM judge data.")
 
-        self.log("!!! g")
         return {
             "name": "llm-judge",
             "subtest": test_name,

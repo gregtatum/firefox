@@ -51,10 +51,10 @@ def test_eval_mochitest_handles_payload_and_writes_file(tmp_path):
     assert out_file.is_file()
     assert json.loads(out_file.read_text()) == {"score": 7}
 
-    results = metadata.get_results()
-    assert len(results) == 1
-    assert results[0]["name"] == "test_eval.html"
-    assert results[0]["framework"]["name"] == "mozperftest"
+    payloads = metadata.get_eval_payloads()
+    assert len(payloads) == 1
+    assert payloads[0][0] == "test_eval.html"
+    assert payloads[0][1] == [{"score": 7}]
 
 
 @mock.patch("mozperftest.test.mochitest.ON_TRY", new=False)
