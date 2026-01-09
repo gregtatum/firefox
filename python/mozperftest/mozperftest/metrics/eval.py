@@ -21,9 +21,7 @@ def _load_evals_module(topsrcdir: str):
 
 
 def _normalize_eval_result(result: dict) -> dict:
-    values = [
-        item["value"] for item in result.get("data", []) if "value" in item
-    ]
+    values = [item["value"] for item in result.get("data", []) if "value" in item]
     if not values and "value" in result and result["value"] is not None:
         values = [result["value"]]
 
@@ -76,9 +74,7 @@ class EvalMetrics(Layer):
             # Run the evals from toolkit/components/ml/eval.
             for test_name, payloads in metadata.get_eval_payloads():
                 self.info(f"[eval] Running {eval_name} on {test_name}")
-                result = _normalize_eval_result(
-                    eval_instance.run(test_name, payloads)
-                )
+                result = _normalize_eval_result(eval_instance.run(test_name, payloads))
                 metric_name = result.get("name")
                 if not metric_name:
                     raise RuntimeError("Eval metric result is missing a name")
@@ -107,9 +103,7 @@ class EvalMetrics(Layer):
 
             suite_settings = results[0]
             summary_value = (
-                sum(combined_values) / len(combined_values)
-                if combined_values
-                else None
+                sum(combined_values) / len(combined_values) if combined_values else None
             )
             suite_result = {
                 "name": metric_name,

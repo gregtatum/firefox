@@ -81,13 +81,11 @@ class EvalToolsCommand(MachCommandBase):
         except ModuleNotFoundError:
             try:
                 self.virtualenv_manager.install_pip_package("PyFxA==0.8.1")
-                import fxa
             except Exception as exception:
                 print(f"Failed to install 'fxa' package: {exception}")
                 return 1
 
-        from fxa import core
-        from fxa import oauth
+        from fxa import core, oauth
         from fxa.errors import ClientError
         from fxa.tools.bearer import get_bearer_token
         from fxa.tools.unblock import send_unblock_code

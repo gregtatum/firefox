@@ -3,7 +3,6 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 import json
 import os
-import re
 from contextlib import redirect_stdout
 from pathlib import Path
 
@@ -371,25 +370,7 @@ class PerfMochitest(_Mochitest):
         if not payloads:
             raise NoPerfMetricsError("mochitest")
 
-<<<<<<< HEAD
-        metadata.add_result({
-            "name": test_name,
-            "framework": {"name": "mozperftest"},
-            "transformer": "mozperftest.test.mochitest:MochitestData",
-            "results": results,
-        })
-||||||| parent of a32a3dcfd367 (Bug 2006413 - Create an eval layer in mozperftest that runs python evals from toolkit/components/ml/evals)
-        metadata.add_result(
-            {
-                "name": test_name,
-                "framework": {"name": "mozperftest"},
-                "transformer": "mozperftest.test.mochitest:MochitestData",
-                "results": results,
-            }
-        )
-=======
         metadata.add_eval_payload(test_name, payloads)
->>>>>>> a32a3dcfd367 (Bug 2006413 - Create an eval layer in mozperftest that runs python evals from toolkit/components/ml/evals)
 
 
 class EvalMochitest(_Mochitest):

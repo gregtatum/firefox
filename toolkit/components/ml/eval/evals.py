@@ -4,10 +4,10 @@
 
 import json
 import os
+from abc import ABC, abstractmethod
 from typing import Any, Callable, Optional
 
 import requests
-from abc import ABC, abstractmethod
 
 
 class _Evaluation(ABC):
@@ -99,7 +99,6 @@ class _TranslationsSacreBleu(_Evaluation):
         raise NotImplementedError()
 
     def run(self, test_name: str, payloads: list[dict[str, Any]], log=None):
-        import sacrebleu
 
         results: list[float] = []
         for payload in payloads:
@@ -201,15 +200,13 @@ class TranslationsLlmJudge(_LlmJudge):
                 'Return JSON with fields: score (0-100), verdict ("good"|"ok"|"bad"), explanation (short).'
             )
 
-            payload = self.query_llm(
-                [
-                    {
-                        "role": "system",
-                        "content": "You are a translation quality judge. Rate adequacy/fluency.",
-                    },
-                    {"role": "user", "content": user_prompt},
-                ]
-            )
+            payload = self.query_llm([
+                {
+                    "role": "system",
+                    "content": "You are a translation quality judge. Rate adequacy/fluency.",
+                },
+                {"role": "user", "content": user_prompt},
+            ])
 
             message = payload.get("choices", [{}])[0].get("message", {})
             content = message.get("content", "").strip()
@@ -233,14 +230,12 @@ class TranslationsLlmJudge(_LlmJudge):
                         f"Invalid score value in LLM judge response: {parsed}"
                     ) from exc
 
-            results.append(
-                {
-                    "score": score,
-                    "verdict": parsed.get("verdict"),
-                    "explanation": parsed.get("explanation"),
-                    "model": payload.get("model"),
-                }
-            )
+            results.append({
+                "score": score,
+                "verdict": parsed.get("verdict"),
+                "explanation": parsed.get("explanation"),
+                "model": payload.get("model"),
+            })
 
         if not results:
             raise ValueError("No evaluation results were produced for LLM judge data.")
