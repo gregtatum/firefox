@@ -29,8 +29,10 @@ function createFakeBrowser(url, hasBrowsingContext = true) {
     browser.browsingContext = {
       currentWindowContext: {
         getActor: sinon.stub().resolves({
-          getText: sinon.stub().resolves({ text: "Sample page content" }),
-          getReaderModeContent: sinon.stub().resolves({ text: "" }),
+          getText: sinon
+            .stub()
+            .resolves({ text: "Sample page content", links: [] }),
+          getReaderModeContent: sinon.stub().resolves(null),
         }),
       },
     };
@@ -261,8 +263,8 @@ add_task(async function test_getPageContent_successful_extraction() {
     const pageContent = "This is a well-written article with lots of content.";
 
     const mockExtractor = {
-      getText: sinon.stub().resolves({ text: pageContent }),
-      getReaderModeContent: sinon.stub().resolves({ text: "" }),
+      getText: sinon.stub().resolves({ text: pageContent, links: [] }),
+      getReaderModeContent: sinon.stub().resolves(null),
     };
 
     const tab = createFakeTab(targetUrl, "Article");
@@ -289,16 +291,16 @@ add_task(async function test_getPageContent_successful_extraction() {
   }
 });
 
-add_task(async function test_getPageContent_content_format() {
+add_task(async function test_getPageContent_passes_extraction_options() {
   const sb = sinon.createSandbox();
 
   try {
     const targetUrl = "https://example.com/long";
-    const pageContent = "A".repeat(500);
+    const pageContent = "A".repeat(15000);
 
     const mockExtractor = {
-      getText: sinon.stub().resolves({ text: pageContent }),
-      getReaderModeContent: sinon.stub().resolves({ text: "" }),
+      getText: sinon.stub().resolves({ text: pageContent, links: [] }),
+      getReaderModeContent: sinon.stub().resolves(null),
     };
 
     const tab = createFakeTab(targetUrl, "Long Page");
@@ -308,19 +310,22 @@ add_task(async function test_getPageContent_content_format() {
 
     setupBrowserWindowTracker(sb, createFakeWindow([tab]));
 
-    const result_array = await GetPageContent.getPageContent(
+    await GetPageContent.getPageContent(
       { url_list: [targetUrl] },
       new Set([targetUrl]),
       new SecurityProperties()
     );
-    const result = result_array[0];
 
+    const callArgs = mockExtractor.getText.firstCall.args[0];
     Assert.ok(
-      result.includes("Content from"),
-      "Should start with content prefix"
+      callArgs.normalizeWhitespace,
+      "Should pass normalizeWhitespace option to extractor"
     );
-    Assert.ok(result.includes(targetUrl), "Should include URL in label");
-    Assert.ok(result.includes(pageContent), "Should include full content");
+    Assert.equal(
+      callArgs.maxLength,
+      GetPageContent.MAX_CHARACTERS,
+      "Should pass maxLength option to extractor"
+    );
   } finally {
     sb.restore();
   }
@@ -333,8 +338,8 @@ add_task(async function test_getPageContent_empty_content() {
     const targetUrl = "https://example.com/empty";
 
     const mockExtractor = {
-      getText: sinon.stub().resolves({ text: "   \n  \n   " }),
-      getReaderModeContent: sinon.stub().resolves({ text: "" }),
+      getText: sinon.stub().resolves({ text: "", links: [] }),
+      getReaderModeContent: sinon.stub().resolves(null),
     };
 
     const tab = createFakeTab(targetUrl, "Empty Page");
@@ -353,8 +358,8 @@ add_task(async function test_getPageContent_empty_content() {
     const result = result_array[0];
 
     Assert.ok(
-      result.includes("Content from"),
-      "Should return content result even for whitespace-only content"
+      result.includes("returned no content"),
+      "Should return no content message for empty page"
     );
     Assert.ok(result.includes("Empty Page"), "Should include tab label");
   } finally {
@@ -370,7 +375,7 @@ add_task(async function test_getPageContent_extraction_error() {
 
     const mockExtractor = {
       getText: sinon.stub().rejects(new Error("Extraction failed")),
-      getReaderModeContent: sinon.stub().resolves({ text: "" }),
+      getReaderModeContent: sinon.stub().resolves(null),
     };
 
     const tab = createFakeTab(targetUrl, "Error Page");
@@ -405,7 +410,7 @@ add_task(async function test_getPageContent_reader_mode_content() {
     const pageContent = "Clean reader mode text";
 
     const mockExtractor = {
-      getText: sinon.stub().resolves({ text: pageContent }),
+      getText: sinon.stub().resolves({ text: pageContent, links: [] }),
       getReaderModeContent: sinon.stub().resolves({ text: pageContent }),
     };
 
@@ -495,6 +500,49 @@ add_task(async function test_getPageContent_allows_untrusted_input_only() {
     Assert.ok(
       result[0].includes("Example Page"),
       "Should return real content, not a refusal"
+    );
+  } finally {
+    sb.restore();
+  }
+});
+
+add_task(async function test_getPageContent_accumulates_seen_urls() {
+  const sb = sinon.createSandbox();
+
+  try {
+    const targetUrl = "https://example.com/links";
+    const pageLinks = [
+      "https://example.com/linked-page-1",
+      "https://example.com/linked-page-2",
+    ];
+
+    const mockExtractor = {
+      getText: sinon.stub().resolves({
+        text: "Page with links",
+        links: pageLinks,
+        canvasSnapshots: [],
+      }),
+      getReaderModeContent: sinon.stub().resolves(null),
+    };
+
+    const tab = createFakeTab(targetUrl, "Links Page");
+    tab.linkedBrowser.browsingContext.currentWindowContext.getActor = sinon
+      .stub()
+      .resolves(mockExtractor);
+
+    setupBrowserWindowTracker(sb, createFakeWindow([tab]));
+
+    const securityProperties = new SecurityProperties();
+    await GetPageContent.getPageContent(
+      { url_list: [targetUrl] },
+      new Set([targetUrl]),
+      securityProperties
+    );
+
+    Assert.deepEqual(
+      [...securityProperties.seenUrls],
+      pageLinks,
+      "Seen URLs should be accumulated on SecurityProperties"
     );
   } finally {
     sb.restore();

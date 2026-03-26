@@ -381,6 +381,7 @@ export function stripSearchBrowsingHistoryFields(result) {
 export class RunSearch {
   static NAVIGATION_TIMEOUT_MS = 15000;
   static CONTENT_SETTLE_MS = 2000;
+  static MAX_CHARACTERS = 10000;
 
   static #ensureTabSelected(tab) {
     if (!tab.selected) {
@@ -595,42 +596,21 @@ export class RunSearch {
     const pageExtractor = await windowContext.getActor("PageExtractor");
     let extraction;
     try {
-      extraction = await pageExtractor.getReaderModeContent();
+      extraction = await pageExtractor.getText({
+        removeBoilerplate: true,
+        normalizeWhitespace: true,
+        sufficientLength: RunSearch.MAX_CHARACTERS,
+      });
     } catch {
-      // Fall back to full text extraction
+      return "Error: failed to extract search results content.";
     }
 
-    let text = extraction?.text ?? "";
-    if (!text) {
-      try {
-        extraction = await pageExtractor.getText();
-        text = extraction?.text ?? "";
-      } catch {
-        return "Error: failed to extract search results content.";
-      }
-    }
-
-    if (!text) {
+    if (!extraction.text) {
       return "No content could be extracted from the search results page.";
     }
 
-    let cleanContent = text
-      .replace(/\s+/g, " ")
-      .replace(/\n\s*\n/g, "\n")
-      .trim();
-
-    const MAX_CHARS = 15000;
-    if (cleanContent.length > MAX_CHARS) {
-      const truncatePoint = cleanContent.lastIndexOf(".", MAX_CHARS);
-      if (truncatePoint > MAX_CHARS - 100) {
-        cleanContent = cleanContent.substring(0, truncatePoint + 1);
-      } else {
-        cleanContent = cleanContent.substring(0, MAX_CHARS) + "...";
-      }
-    }
-
     const url = browser.currentURI?.spec || "unknown";
-    return `Search results from ${url}:\n\n${cleanContent}`;
+    return `Search results from ${url}:\n\n${extraction.text}`;
   }
 }
 
@@ -648,8 +628,6 @@ export class GetPageContent {
    * @param {Set<string>} mentionedUrls
    * @param {SecurityProperties} securityProperties
    * @returns {Promise<Array<string>>}
-   *  A promise resolving to a string containing the extracted page content
-   *  with a descriptive header, or an error message if extraction fails.
    */
   static async getPageContent({ url_list }, mentionedUrls, securityProperties) {
     // This is a decision table for allowing and blocking fetches on the configuration of the
@@ -674,12 +652,11 @@ export class GetPageContent {
           return "This URL is not allowed: " + url;
         }
         try {
-          const text = await GetPageContent.#getPageContentsForSingleURL(
+          return GetPageContent.#getPageContentsForSingleURL(
             url,
             mentionedUrls,
             securityProperties
           );
-          return text;
         } catch (error) {
           console.error(error);
           return `Could not retrieve the content for the page: ${url_list[index]}`;
@@ -780,9 +757,9 @@ export class GetPageContent {
    *  with mode and label information, or an error message if no content is available.
    */
   static async #runExtraction(pageExtractor, securityProperties, label) {
-    const { text } = await pageExtractor.getText({
-      sufficientLength: GetPageContent.MAX_CHARACTERS,
+    const { text, links } = await pageExtractor.getText({
       cleanWhitespace: true,
+      sufficientLength: GetPageContent.MAX_CHARACTERS,
       removeBoilerplate: true,
     });
 
