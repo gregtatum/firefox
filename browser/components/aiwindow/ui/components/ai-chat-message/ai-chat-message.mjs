@@ -91,15 +91,16 @@ export class AIChatMessage extends MozLitElement {
    */
   willUpdate(changed) {
     super.willUpdate?.(changed);
-    console.log(`!!! changed`, changed);
     // Rebuild Set if trustedUrls changed, OR if Set is empty but array has values
     // (handles case where trustedUrls was set before Lit started tracking)
     if (
       changed.has("trustedUrls") ||
       (this.#trustedUrlSet.size === 0 && this.trustedUrls?.length > 0)
     ) {
+      console.log(`!!! changed`, changed);
       const list = Array.isArray(this.trustedUrls) ? this.trustedUrls : [];
       this.#trustedUrlSet = new Set(list);
+      console.log(`!!! update urls`, this.#trustedUrlSet);
     }
   }
 
@@ -205,8 +206,10 @@ export class AIChatMessage extends MozLitElement {
     // Security validation is not active if null
     // i.e., browser.smartwindow.checkSecurityFlags is disabled
     if (this.trustedUrls === null) {
+      console.log(`!!! no trusted URls`);
       return;
     }
+    console.log(`!!! #trustedUrlSet`, this.#trustedUrlSet);
 
     const anchors = root.querySelectorAll("a[href]");
     for (const anchor of anchors) {

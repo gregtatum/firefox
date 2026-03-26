@@ -156,6 +156,9 @@ export class AIChatContentParent extends JSWindowActorParent {
     // was ready), push trusted URLs now that the child can receive messages.
     if (this.#sessionLedger) {
       this.#pushTrustedUrlsToChild();
+      console.log(`!!! There is a ledger here.`);
+    } else {
+      console.log(`!!! There was no ledger here.`);
     }
   }
 
@@ -305,6 +308,7 @@ export class AIChatContentParent extends JSWindowActorParent {
         return;
       }
 
+      console.log(`!!! register ledger`);
       this.#sessionLedger = orchestrator.registerSession(conversationId);
       this.#sessionLedger.addEventListener("change", this.#onLedgerChange);
       this.#pushTrustedUrlsToChild();
@@ -345,7 +349,9 @@ export class AIChatContentParent extends JSWindowActorParent {
    * Returns early if no ledger is bound (e.g., before setConversation).
    */
   #pushTrustedUrlsToChild() {
+    console.log(`!!! #pushTrustedUrlsToChild`);
     if (!this.#sessionLedger) {
+      console.log(`!!! #pushTrustedUrlsToChild (no session ledger)`);
       return;
     }
 
@@ -357,16 +363,19 @@ export class AIChatContentParent extends JSWindowActorParent {
         true
       )
     ) {
+      console.log(`!!! #pushTrustedUrlsToChild - pref is not enabled`);
       return;
     }
 
     try {
       const merged = this.#sessionLedger.mergeAll();
       const trustedUrls = merged.getAllUrls();
+      console.log(`!!! Send trusted URLs`, trustedUrls);
       this.sendAsyncMessage("AIChatContent:TrustedUrlsUpdated", {
         trustedUrls,
       });
     } catch (e) {
+      console.log(`!!! #pushTrustedUrlsToChild error`);
       console.warn("Failed to push trusted URLs to child:", e);
     }
   }
