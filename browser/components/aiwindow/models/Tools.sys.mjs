@@ -493,7 +493,10 @@ export class RunSearch {
     let result;
     try {
       await RunSearch.#performSearchAndWait(win, originalBrowser, query.trim());
-      result = RunSearch.#extractSerpContent(originalBrowser);
+      result = RunSearch.#extractSerpContent(
+        originalBrowser,
+        securityProperties
+      );
     } catch (e) {
       console.error("[RunSearch] search failed:", e);
       result = `Error performing search for "${query}": ${e.message}`;
@@ -587,7 +590,11 @@ export class RunSearch {
     await new Promise(r => lazy.setTimeout(r, RunSearch.CONTENT_SETTLE_MS));
   }
 
-  static async #extractSerpContent(browser) {
+  /**
+   * @param {MozBrowser} browser
+   * @param {SecurityProperties} securityProperties
+   */
+  static async #extractSerpContent(browser, securityProperties) {
     const windowContext = browser.browsingContext?.currentWindowContext;
     if (!windowContext) {
       return "Error: could not access search results page content.";
@@ -608,6 +615,8 @@ export class RunSearch {
     if (!extraction.text) {
       return "No content could be extracted from the search results page.";
     }
+
+    securityProperties.addSeenUrls(extraction.links);
 
     const url = browser.currentURI?.spec || "unknown";
     return `Search results from ${url}:\n\n${extraction.text}`;
@@ -772,6 +781,7 @@ export class GetPageContent {
     // The information is untrusted since it's arbitrary web content.
     securityProperties.setPrivateData();
     securityProperties.setUntrustedInput();
+    securityProperties.addSeenUrls(links);
 
     return `Content from ${label}:\n\n${text}`;
   }

@@ -2236,7 +2236,7 @@ pref("browser.smartwindow.firstrun.modelChoice", "");
 pref("browser.smartwindow.model", "");
 pref("browser.smartwindow.preferences.endpoint", "");
 pref("browser.smartwindow.firstrun.explainerURL", "https://www.firefox.com/en-US/smart-window/?v=product");
-pref("browser.smartwindow.checkSecurityFlags", false);
+pref("browser.smartwindow.checkSecurityFlags", true);
 
 // Smart Window Logging
 pref("browser.smartwindow.chatHistory.loglevel", "Error");

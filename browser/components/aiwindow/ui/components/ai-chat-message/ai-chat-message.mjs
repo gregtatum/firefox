@@ -91,6 +91,7 @@ export class AIChatMessage extends MozLitElement {
    */
   willUpdate(changed) {
     super.willUpdate?.(changed);
+    console.log(`!!! changed`, changed);
     // Rebuild Set if trustedUrls changed, OR if Set is empty but array has values
     // (handles case where trustedUrls was set before Lit started tracking)
     if (
