@@ -289,6 +289,9 @@ Object.assign(Chat, {
               ),
               time: new Date() - startTime,
             });
+            for (const url of secProps.seenUrls) {
+              allAllowedUrls.add(url);
+            }
           } else {
             result = await toolFunc(params, secProps);
           }

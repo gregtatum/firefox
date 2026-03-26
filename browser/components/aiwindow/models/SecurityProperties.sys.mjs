@@ -11,6 +11,17 @@
  * is called. This ensures that parallel tool calls requested in the same
  * conversation turn all see the same committed flags.
  */
+
+// Important! Changing or removing this value requires a security review.
+//
+// Cap the number of extracted page URLs retained per conversation. Each URL
+// a page links to becomes citation-allowed, so an attacker-controlled page
+// could inflate this set via injected <a> tags. The cap bounds the surface.
+const MAX_SEEN_URLS = 500;
+
+/**
+ *
+ */
 export class SecurityProperties {
   #privateData = false;
   #untrustedInput = false;
@@ -31,6 +42,32 @@ export class SecurityProperties {
   }
   setUntrustedInput() {
     this.#newUntrustedInput = true;
+  }
+
+  /** @type {Set<string>} */
+  #seenUrls = new Set();
+
+  /** @returns {ReadonlySet<string>} */
+  get seenUrls() {
+    return this.#seenUrls;
+  }
+
+  /** @param {string} url*/
+  addSeenUrl(url) {
+    if (this.#seenUrls.size < MAX_SEEN_URLS) {
+      this.#seenUrls.add(url);
+    }
+  }
+
+  /** @param {string[]} urls*/
+  addSeenUrls(urls) {
+    const seen = this.#seenUrls;
+    for (let i = 0; i < urls.length; i++) {
+      if (seen.size >= MAX_SEEN_URLS) {
+        break;
+      }
+      seen.add(urls[i]);
+    }
   }
 
   /**

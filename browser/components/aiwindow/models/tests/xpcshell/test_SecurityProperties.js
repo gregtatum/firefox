@@ -24,3 +24,44 @@ add_task(function test_securityProperties_sticky() {
   sp.commit();
   Assert.strictEqual(sp.untrustedInput, true, "flag persists across commits");
 });
+
+add_task(function test_seenUrls_basic() {
+  const sp = new SecurityProperties();
+  Assert.equal(sp.seenUrls.size, 0, "starts empty");
+
+  sp.addSeenUrls(["https://a.com", "https://b.com"]);
+  Assert.equal(sp.seenUrls.size, 2, "two URLs added");
+  Assert.ok(sp.seenUrls.has("https://a.com"), "contains first URL");
+  Assert.ok(sp.seenUrls.has("https://b.com"), "contains second URL");
+});
+
+add_task(function test_seenUrls_deduplicates() {
+  const sp = new SecurityProperties();
+  sp.addSeenUrls(["https://a.com", "https://a.com", "https://b.com"]);
+  Assert.equal(sp.seenUrls.size, 2, "duplicate URLs are not counted twice");
+});
+
+add_task(function test_seenUrls_caps_at_max() {
+  const sp = new SecurityProperties();
+  const urls = Array.from(
+    { length: 600 },
+    (_, i) => `https://example.com/${i}`
+  );
+  sp.addSeenUrls(urls);
+  Assert.equal(
+    sp.seenUrls.size,
+    500,
+    "seen URLs capped at MAX_SEEN_URLS (500)"
+  );
+
+  sp.addSeenUrls(["https://example.com/overflow"]);
+  Assert.equal(
+    sp.seenUrls.size,
+    500,
+    "adding more URLs past the cap is a no-op"
+  );
+  Assert.ok(
+    !sp.seenUrls.has("https://example.com/overflow"),
+    "overflow URL was not added"
+  );
+});
