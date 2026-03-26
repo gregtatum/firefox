@@ -1287,6 +1287,12 @@ export class AIWindow extends MozLitElement {
         },
       });
 
+      const seenUrls = [...this.#conversation.securityProperties.seenUrls];
+      if (seenUrls.length) {
+        const actor = this.#getAIChatContentActor();
+        actor?.seedPageUrls(this.#conversation.id, seenUrls);
+      }
+
       this.#sendModelResponseTelemetryEvent(
         "",
         this.#getModelRequestLatencyAndDuration(requestStart, firstTokenTime)

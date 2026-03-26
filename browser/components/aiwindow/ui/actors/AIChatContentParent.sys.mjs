@@ -93,6 +93,20 @@ export class AIChatContentParent extends JSWindowActorParent {
     this.#handleSeedMentionedUrl({ conversationId, url });
   }
 
+  /**
+   * Seeds page-extracted URLs into the security ledger.
+   *
+   * Called by ai-window after fetchWithHistory completes, with all URLs
+   * accumulated in securityProperties.seenUrls across the conversation turn.
+   * Re-seeding already-known URLs is safe; seedConversation is idempotent.
+   *
+   * @param {string} conversationId - Conversation to seed into
+   * @param {string[]} urls - URLs to seed as trusted
+   */
+  seedPageUrls(conversationId, urls) {
+    this.#handleSeedPageUrls({ conversationId, urls });
+  }
+
   receiveMessage({ data, name }) {
     switch (name) {
       case "aiChatContentActor:search":
@@ -339,6 +353,20 @@ export class AIChatContentParent extends JSWindowActorParent {
       sessionLedger.seedConversation([url]);
     } catch (e) {
       console.warn("Failed to seed mentioned URL:", e);
+    }
+  }
+
+  async #handleSeedPageUrls({ conversationId, urls }) {
+    if (!conversationId || !urls?.length) {
+      return;
+    }
+
+    try {
+      const orchestrator = await lazy.getSecurityOrchestrator();
+      const sessionLedger = orchestrator.registerSession(conversationId);
+      sessionLedger.seedConversation(urls);
+    } catch (e) {
+      console.warn("Failed to seed page URLs:", e);
     }
   }
 
