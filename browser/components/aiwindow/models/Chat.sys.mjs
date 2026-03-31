@@ -23,7 +23,6 @@ import {
   RUN_SEARCH,
   GET_USER_MEMORIES,
 } from "moz-src:///browser/components/aiwindow/models/Tools.sys.mjs";
-import { extractValidUrls } from "moz-src:///browser/components/aiwindow/models/ChatUtils.sys.mjs";
 import { compactMessages } from "moz-src:///browser/components/aiwindow/models/PromptOptimizer.sys.mjs";
 
 // Hard limit on how many times run_search can execute per conversation turn.
@@ -144,8 +143,7 @@ Object.assign(Chat, {
       isVerbatimQuery = false;
     }
 
-    const openTabUrls = await this._getOpenTabUrls(conversation);
-    const mentionedUrls = await conversation.getAllMentionURLs();
+    conversation.addSeenUrls(await this._getOpenTabUrls(conversation));
 
     let fullResponseText = "";
     const searchExecuted = conversation._searchExecutedTurn === currentTurn;
@@ -312,10 +310,8 @@ Object.assign(Chat, {
           switch (toolName) {
             case GET_PAGE_CONTENT: {
               const startTime = new Date();
-              const seenUrls = openTabUrls.union(mentionedUrls);
               result = await GetPageContent.getPageContent(
                 toolParams,
-                seenUrls,
                 conversation
               );
               Glean.smartWindow.getPageContent.record({
@@ -369,12 +365,6 @@ Object.assign(Chat, {
             "TOOL EXEC",
             { arguments: toolParams, result },
             toolName
-          );
-
-          this._collectAllowedUrlsFromToolCall(
-            toolName,
-            result,
-            allAllowedUrls
           );
 
           const content = { tool_call_id: id, body: result, name: toolName };
@@ -450,34 +440,5 @@ Object.assign(Chat, {
       urls.add(url);
     }
     return urls;
-  },
-
-  /**
-   * Collect allowed URLs from tool results for citation validation.
-   *
-   * @param {string} toolName - Name of the tool
-   * @param {*} result - Tool result
-   * @param {Set<string>} allAllowedUrls - Set to add URLs to
-   */
-  _collectAllowedUrlsFromToolCall(toolName, result, allAllowedUrls) {
-    if (toolName === GET_OPEN_TABS && Array.isArray(result)) {
-      for (const url of extractValidUrls(result)) {
-        allAllowedUrls.add(url);
-      }
-    } else if (toolName === SEARCH_BROWSING_HISTORY) {
-      let parsed = result;
-      if (typeof result === "string") {
-        try {
-          parsed = JSON.parse(result);
-        } catch {
-          return;
-        }
-      }
-      if (parsed?.results && Array.isArray(parsed.results)) {
-        for (const url of extractValidUrls(parsed.results)) {
-          allAllowedUrls.add(url);
-        }
-      }
-    }
   },
 });
