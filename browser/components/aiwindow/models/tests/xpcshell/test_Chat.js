@@ -50,19 +50,6 @@ function getLastAssistantResponse(conversation) {
     .at(-1);
 }
 
-function makeConversation(messages = []) {
-  const conversation = new ChatConversation({
-    title: "test",
-    description: "test",
-    pageUrl: new URL("https://www.firefox.com"),
-    pageMeta: {},
-  });
-  for (const msg of messages) {
-    conversation.messages.push(msg);
-  }
-  return conversation;
-}
-
 add_task(async function test_Chat_real_tools_are_registered() {
   Assert.strictEqual(
     typeof toolFns.getOpenTabs,

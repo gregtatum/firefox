@@ -321,7 +321,7 @@ Object.assign(Chat, {
               result = await GetPageContent.getPageContent(
                 toolParams,
                 allAllowedUrls,
-                conversation.securityProperties
+                conversation
               );
               Glean.smartWindow.getPageContent.record({
                 location: mode,
@@ -339,7 +339,7 @@ Object.assign(Chat, {
               result = await RunSearch.runSearch(
                 toolParams,
                 browsingContext,
-                conversation.securityProperties
+                conversation
               );
               const engine = await lazy.SearchService.getDefault();
               Glean.smartWindow.searchHandoff.record({
@@ -353,20 +353,16 @@ Object.assign(Chat, {
               break;
             }
             case GET_OPEN_TABS:
-              result = await toolFns.getOpenTabs(
-                conversation.securityProperties
-              );
+              result = await toolFns.getOpenTabs(conversation);
               break;
             case SEARCH_BROWSING_HISTORY:
               result = await toolFns.searchBrowsingHistory(
                 toolParams,
-                conversation.securityProperties
+                conversation
               );
               break;
             case GET_USER_MEMORIES:
-              result = await toolFns.getUserMemories(
-                conversation.securityProperties
-              );
+              result = await toolFns.getUserMemories(conversation);
               break;
             default:
               throw new Error(`No such tool: ${toolName}`);
@@ -453,7 +449,7 @@ Object.assign(Chat, {
    * @param {Set<string>} allAllowedUrls - Set to populate
    */
   async _collectInitialAllowedUrls(conversation, allAllowedUrls) {
-    const openTabs = await toolFns.getOpenTabs(conversation.securityProperties);
+    const openTabs = await toolFns.getOpenTabs(conversation);
     for (const url of extractValidUrls(openTabs)) {
       allAllowedUrls.add(url);
     }
