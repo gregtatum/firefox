@@ -563,7 +563,8 @@ add_task(
 
       const getPageContentStub = sb
         .stub(GetPageContent, "getPageContent")
-        .callsFake(async (_params, _allowedUrls, secProps = {}) => {
+        .callsFake(async (_params, conversation) => {
+          const secProps = conversation.securityProperties;
           if (secProps.untrustedInput && secProps.privateData) {
             return [
               `get_page_content is not available for ${_params?.url} when the conversation involves both untrusted input and private data.`,
@@ -845,87 +846,6 @@ add_task(
     }
   }
 );
-
-add_task(
-  async function test_collectInitialAllowedUrls_adds_open_tabs_and_mentions() {
-    const sb = sinon.createSandbox();
-    try {
-      sb.stub(toolFns, "getOpenTabs").resolves([
-        { url: "https://example.com/page1", title: "Page 1" },
-        { url: "https://example.com/page2", title: "Page 2" },
-      ]);
-
-      const conversation = makeConversation([
-        {
-          role: "user",
-          content: {
-            body: "Check these",
-            contextMentions: [
-              { url: "https://mentioned.example.com/article" },
-              { url: "https://mentioned.example.com/docs" },
-            ],
-          },
-        },
-      ]);
-
-      const allowedUrls = new Set();
-      await Chat._collectInitialAllowedUrls(
-        conversation,
-        allowedUrls,
-        conversation.securityProperties
-      );
-
-      Assert.equal(allowedUrls.size, 4, "Should have 2 tab + 2 mention URLs");
-      Assert.ok(allowedUrls.has("https://example.com/page1"));
-      Assert.ok(allowedUrls.has("https://example.com/page2"));
-      Assert.ok(allowedUrls.has("https://mentioned.example.com/article"));
-      Assert.ok(allowedUrls.has("https://mentioned.example.com/docs"));
-    } finally {
-      sb.restore();
-    }
-  }
-);
-
-add_task(
-  async function test_collectInitialAllowedUrls_empty_when_no_tabs_or_mentions() {
-    const sb = sinon.createSandbox();
-    try {
-      sb.stub(toolFns, "getOpenTabs").resolves([]);
-
-      const conversation = makeConversation([
-        { role: "user", content: { body: "Hello" } },
-      ]);
-
-      const allowedUrls = new Set();
-      await Chat._collectInitialAllowedUrls(
-        conversation,
-        allowedUrls,
-        conversation.securityProperties
-      );
-
-      Assert.equal(allowedUrls.size, 0, "Should be empty");
-    } finally {
-      sb.restore();
-    }
-  }
-);
-
-add_task(async function test_collectAllowedUrlsFromToolCall_get_open_tabs() {
-  const allowedUrls = new Set();
-
-  Chat._collectAllowedUrlsFromToolCall(
-    "get_open_tabs",
-    [
-      { url: "https://tab1.example.com", title: "Tab 1" },
-      { url: "https://tab2.example.com", title: "Tab 2" },
-    ],
-    allowedUrls
-  );
-
-  Assert.equal(allowedUrls.size, 2);
-  Assert.ok(allowedUrls.has("https://tab1.example.com"));
-  Assert.ok(allowedUrls.has("https://tab2.example.com"));
-});
 
 add_task(
   async function test_Chat_fetchWithHistory_get_user_memories_called_when_memories_enabled() {

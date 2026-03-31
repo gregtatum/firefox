@@ -24,10 +24,6 @@ import {
   GET_USER_MEMORIES,
 } from "moz-src:///browser/components/aiwindow/models/Tools.sys.mjs";
 import { extractValidUrls } from "moz-src:///browser/components/aiwindow/models/ChatUtils.sys.mjs";
-import {
-  extractMarkdownLinks,
-  validateCitedUrls,
-} from "moz-src:///browser/components/aiwindow/models/CitationParser.sys.mjs";
 import { compactMessages } from "moz-src:///browser/components/aiwindow/models/PromptOptimizer.sys.mjs";
 
 // Hard limit on how many times run_search can execute per conversation turn.
@@ -148,8 +144,8 @@ Object.assign(Chat, {
       isVerbatimQuery = false;
     }
 
-    const allAllowedUrls = new Set();
-    await this._collectInitialAllowedUrls(conversation, allAllowedUrls);
+    const openTabUrls = await this._getOpenTabUrls(conversation);
+    const mentionedUrls = await conversation.getAllMentionURLs();
 
     let fullResponseText = "";
     const searchExecuted = conversation._searchExecutedTurn === currentTurn;
@@ -206,8 +202,6 @@ Object.assign(Chat, {
       if (!pendingToolCalls || pendingToolCalls.length === 0) {
         // Debug logging: Mark the end of the streaming loop for this turn
         logConversationStream(currentTurn, "STREAM END");
-
-        this._validateCitations(fullResponseText, allAllowedUrls);
         return;
       }
 
@@ -318,9 +312,10 @@ Object.assign(Chat, {
           switch (toolName) {
             case GET_PAGE_CONTENT: {
               const startTime = new Date();
+              const seenUrls = openTabUrls.union(mentionedUrls);
               result = await GetPageContent.getPageContent(
                 toolParams,
-                allAllowedUrls,
+                seenUrls,
                 conversation
               );
               Glean.smartWindow.getPageContent.record({
@@ -443,21 +438,18 @@ Object.assign(Chat, {
   },
 
   /**
-   * Pre-populate allowed URLs from open tabs and @mentioned URLs.
+   * Get the list of URLs for the open tabs, limited to the MAX_TABS of the most recently
+   * accessed.
    *
    * @param {ChatConversation} conversation
-   * @param {Set<string>} allAllowedUrls - Set to populate
+   * @returns {Set<string>}
    */
-  async _collectInitialAllowedUrls(conversation, allAllowedUrls) {
-    const openTabs = await toolFns.getOpenTabs(conversation);
-    for (const url of extractValidUrls(openTabs)) {
-      allAllowedUrls.add(url);
+  async _getOpenTabUrls(conversation) {
+    const urls = new Set();
+    for (const { url } of await toolFns.getOpenTabs(conversation)) {
+      urls.add(url);
     }
-
-    // Add @mentioned URLs from conversation history
-    for (const mentionURL of conversation.getAllMentionURLs()) {
-      allAllowedUrls.add(mentionURL);
-    }
+    return urls;
   },
 
   /**
@@ -487,43 +479,5 @@ Object.assign(Chat, {
         }
       }
     }
-  },
-
-  /**
-   * Validate citations in the response against allowed URLs.
-   *
-   * @param {string} responseText - Full response text
-   * @param {Set<string>} allAllowedUrls - Set of allowed URLs
-   */
-  _validateCitations(responseText, allAllowedUrls) {
-    if (!responseText) {
-      return null;
-    }
-
-    const links = extractMarkdownLinks(responseText);
-    if (links.length === 0) {
-      return null;
-    }
-
-    const citedUrls = links.map(link => link.url);
-
-    if (allAllowedUrls.size === 0) {
-      console.warn(
-        `Citation validation: 0 valid, ${citedUrls.length} invalid ` +
-          `(no tool sources provided)`
-      );
-      return null;
-    }
-
-    const validation = validateCitedUrls(citedUrls, [...allAllowedUrls]);
-
-    if (validation.invalid.length) {
-      console.warn(
-        `Citation validation: ${validation.valid.length} valid, ` +
-          `${validation.invalid.length} invalid (rate: ${(validation.validationRate * 100).toFixed(1)}%)`
-      );
-    }
-
-    return validation;
   },
 });
