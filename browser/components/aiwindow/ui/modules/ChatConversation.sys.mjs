@@ -79,9 +79,11 @@ export class ChatConversation extends EventEmitter {
    * so that we can decide how to show them to users in a safe way. If a URL has not
    * been seen before, then it's untrusted in different circumstances.
    *
+   * Initialized from the constructor params (restored from DB) or as an empty Set.
+   *
    * @type {Set<string>}
    */
-  seenUrls = new Set();
+  seenUrls;
 
   /**
    * @param {object} params
@@ -105,6 +107,7 @@ export class ChatConversation extends EventEmitter {
       createdDate = Date.now(),
       updatedDate = Date.now(),
       messages = [],
+      seenUrls,
     } = params;
 
     super();
@@ -117,6 +120,7 @@ export class ChatConversation extends EventEmitter {
     this.createdDate = createdDate;
     this.updatedDate = updatedDate;
     this.#messages = messages;
+    this.seenUrls = seenUrls ? new Set(seenUrls) : new Set();
 
     // NOTE: Destructuring params.status causes a linter error
     this.status = params.status || CONVERSATION_STATUS.ACTIVE;
