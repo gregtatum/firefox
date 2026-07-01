@@ -33,7 +33,6 @@ import {
 import { EventEmitter } from "resource://gre/modules/EventEmitter.sys.mjs";
 import { Conversation } from "moz-src:///browser/components/aiwindow/models/Conversation.sys.mjs";
 import { consumeStreamChunk } from "moz-src:///browser/components/aiwindow/models/TokenStreamParser.sys.mjs";
-import { SecurityProperties } from "moz-src:///browser/components/aiwindow/models/SecurityProperties.sys.mjs";
 
 const lazy = {};
 ChromeUtils.defineESModuleGetters(lazy, {
@@ -93,8 +92,6 @@ export class ChatConversation extends Conversation {
   pageUrl;
   pageMeta;
   status;
-  /** @type {SecurityProperties} */
-  securityProperties;
   activeBranchTipMessageId;
 
   #emitter = new EventEmitter();
@@ -162,33 +159,6 @@ export class ChatConversation extends Conversation {
   #baseTokenCounts = new Map();
 
   /**
-   * Language models can generate arbitrary URLs. If a conversation has been exposed
-   * to untrusted content (such as from summarizing a webpage) then it can be prompt
-   * injected to display arbitrary URLs. Language models can also invent plausible URLs
-   * for a conversation that do not exist.
-   *
-   * To mitigate these issues we collect all URLs that have been seen in a conversation
-   * so that we can decide how to show them to users in a safe way. If a URL has not
-   * been seen before, then it's untrusted in different circumstances.
-   *
-   * Initialized from the constructor params (restored from DB) or as an empty Set.
-   *
-   * @type {Set<string>}
-   */
-  seenUrls;
-
-  /**
-   * URLs found in SERP contents from run_search that we are willing to
-   * fetch via a anonymous request even when the conversation has
-   * been exposed to both private and untrusted content.
-   *
-   * Initialized from the constructor params (restored from DB) or as an empty Set.
-   *
-   * @type {Set<string>}
-   */
-  serpUrlsForAnonymousFetch;
-
-  /**
    * Conversation-level pool of history results keyed by URL, accumulated across
    * every `search_browsing_history` invocation in this conversation. A message
    * snapshots this pool when it completes (see `receiveResponse`), so any
@@ -236,18 +206,24 @@ export class ChatConversation extends Conversation {
       seenUrls,
       serpUrlsForAnonymousFetch,
       memoriesToggled = null,
+      securityProperties = null,
     } = params;
 
-    super({ id, createdDate, updatedDate, messages, feature: "chat" });
+    super({
+      id,
+      createdDate,
+      updatedDate,
+      messages,
+      seenUrls,
+      serpUrlsForAnonymousFetch,
+      feature: "chat",
+      securityProperties,
+    });
 
     this.title = title;
     this.description = description;
     this.pageUrl = pageUrl;
     this.pageMeta = pageMeta;
-    this.seenUrls = seenUrls ? new Set(seenUrls) : new Set();
-    this.serpUrlsForAnonymousFetch = serpUrlsForAnonymousFetch
-      ? new Set(serpUrlsForAnonymousFetch)
-      : new Set();
     this.memoriesToggled = memoriesToggled;
 
     // transient: tracks the URL the current starter prompts were generated
@@ -266,15 +242,6 @@ export class ChatConversation extends Conversation {
 
     // NOTE: Destructuring params.status causes a linter error
     this.status = params.status || CONVERSATION_STATUS.ACTIVE;
-    if (params.securityProperties instanceof SecurityProperties) {
-      this.securityProperties = params.securityProperties;
-    } else if (params.securityProperties != null) {
-      this.securityProperties = SecurityProperties.fromJSON(
-        params.securityProperties
-      );
-    } else {
-      this.securityProperties = new SecurityProperties();
-    }
 
     // Seed the branch-tip cache so restored-from-DB conversations have it
     // set before the first turn.
@@ -479,26 +446,6 @@ export class ChatConversation extends Conversation {
 
   _createMessage(args) {
     return new ChatMessage({ ...args, convId: this.id });
-  }
-
-  /**
-   * Gets any URL mentioned in the conversation. These URLs have heightened security
-   * permissions as they have been explicitly added to the conversation by the user.
-   *
-   * @returns {Set<string>}
-   */
-  getAllMentionURLs() {
-    /** @type {Set<string>} */
-    const mentionUrls = new Set();
-    for (const message of this.messages) {
-      const { contextMentions } = message.content;
-      if (contextMentions) {
-        for (const { url } of contextMentions) {
-          mentionUrls.add(url);
-        }
-      }
-    }
-    return mentionUrls;
   }
 
   /**
@@ -1022,21 +969,8 @@ export class ChatConversation extends Conversation {
    * @param {Iterable<string>} urls
    */
   addSeenUrls(urls) {
-    for (const url of urls) {
-      this.seenUrls.add(url);
-    }
+    super.addSeenUrls(urls);
     this.emit("chat-conversation:seen-urls-updated", this.seenUrls);
-  }
-
-  /**
-   * Add an iterable of URLs to the serpUrlsForAnonymousFetch ledger
-   *
-   * @param {Iterable<string>} urls
-   */
-  addSerpUrlsForAnonymousFetch(urls) {
-    for (const url of urls) {
-      this.serpUrlsForAnonymousFetch.add(url);
-    }
   }
 
   /**

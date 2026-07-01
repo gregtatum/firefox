@@ -32,6 +32,8 @@ export const FEATURE_PURPOSES = Object.freeze({
     PURPOSES.MEMORY_GENERATION,
   [MODEL_FEATURES.MEMORIES_MESSAGE_CLASSIFICATION_SYSTEM]:
     PURPOSES.MEMORY_GENERATION,
+  // TODO: Change to agent purpose once platform supports it
+  [MODEL_FEATURES.AGENT_MONITOR]: PURPOSES.CHAT,
 });
 
 function getDefaultServiceType(feature) {

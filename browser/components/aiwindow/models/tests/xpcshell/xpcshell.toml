@@ -35,6 +35,8 @@ firefox-appdir = "browser"
 
 ["test_Message.js"]
 
+["test_MonitorAgent.js"]
+
 ["test_PromptLoader_buildConversation.js"]
 
 ["test_PromptOptimizer.js"]
