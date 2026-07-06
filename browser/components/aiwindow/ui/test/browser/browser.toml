@@ -147,6 +147,10 @@ skip-if = [
 
 ["browser_memories_icon_button.js"]
 
+["browser_monitor_agent_run.js"]
+
+["browser_monitor_agent_security.js"]
+
 ["browser_open_aiwindow.js"]
 
 ["browser_run_search_back_navigation.js"]

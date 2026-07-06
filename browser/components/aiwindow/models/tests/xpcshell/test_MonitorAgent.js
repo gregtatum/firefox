@@ -17,9 +17,6 @@ const { DailySchedule, IntervalSchedule, Schedule, WeeklySchedule } =
   ChromeUtils.importESModule(
     "moz-src:///browser/components/aiwindow/models/agents/Schedule.sys.mjs"
   );
-const { PageExtractorParent } = ChromeUtils.importESModule(
-  "resource://gre/actors/PageExtractorParent.sys.mjs"
-);
 const { MonitorStore } = ChromeUtils.importESModule(
   "moz-src:///browser/components/aiwindow/models/agents/MonitorStore.sys.mjs"
 );
@@ -29,15 +26,7 @@ const { Sqlite } = ChromeUtils.importESModule(
 const { TestUtils } = ChromeUtils.importESModule(
   "resource://testing-common/TestUtils.sys.mjs"
 );
-const {
-  FEATURE_MAJOR_VERSIONS,
-  MODEL_FEATURES,
-  PURPOSES,
-  SERVICE_TYPES,
-  _clearRemoteClientForTesting,
-  _setRemoteClientForTesting,
-  openAIEngine,
-} = ChromeUtils.importESModule(
+const { _clearRemoteClientForTesting } = ChromeUtils.importESModule(
   "moz-src:///browser/components/aiwindow/models/Utils.sys.mjs"
 );
 const { sinon } = ChromeUtils.importESModule(
@@ -124,51 +113,6 @@ function observeTopic(topic) {
 async function createStoredMonitor(options) {
   await MonitorAgent.createMonitor(options);
   return (await MonitorAgent.listMonitors()).at(-1);
-}
-
-function makeMonitorStoreConnection(sb, overrides = {}) {
-  return {
-    close: sb.stub().resolves(),
-    execute: sb.stub().resolves(),
-    executeCached: sb.stub().resolves([]),
-    executeTransaction: sb.stub().callsFake(async task => task()),
-    getSchemaVersion: sb.stub().resolves(1),
-    setSchemaVersion: sb.stub().resolves(),
-    ...overrides,
-  };
-}
-
-function setupMonitorModelStubs(sb, engineRun) {
-  if (Services.prefs.prefHasUserValue(PREF_MODEL)) {
-    Services.prefs.clearUserPref(PREF_MODEL);
-  }
-  Services.prefs.setStringPref(PREF_MODEL_CHOICE, "");
-
-  const fakeEngine = { run: engineRun };
-  const records = [
-    {
-      feature: MODEL_FEATURES.CHAT,
-      version: `${FEATURE_MAJOR_VERSIONS[MODEL_FEATURES.CHAT]}.0`,
-      model_choice_id: "",
-      model: "monitor-test-model",
-      is_default: true,
-      parameters: { temperature: 0 },
-      service_type: SERVICE_TYPES.AI,
-      purpose: PURPOSES.CHAT,
-    },
-  ];
-
-  _setRemoteClientForTesting({
-    get: sb.stub().resolves(records),
-  });
-  sb.stub(openAIEngine, "build").resolves(fakeEngine);
-  sb.stub(openAIEngine, "getFxAccountToken").resolves("fx-token");
-  return fakeEngine;
-}
-
-function cleanupMonitorModelStubs(sb) {
-  _clearRemoteClientForTesting();
-  sb.restore();
 }
 
 add_task(function test_Schedule_fromJSON_normalizes_supported_shapes() {
@@ -343,192 +287,6 @@ add_task(function test_parseMonitorResult_falls_back_for_invalid_response() {
       conditionMet: false,
     }
   );
-});
-
-add_task(
-  async function test_runMonitorCheck_extracts_pages_and_builds_prompt() {
-    const sb = sinon.createSandbox();
-    try {
-      let payload;
-      const engineRun = sb.stub().callsFake(async runPayload => {
-        payload = runPayload;
-        return {
-          finalOutput:
-            '{"explanation":"The product is now $9.99.","conditionMet":true}',
-        };
-      });
-      setupMonitorModelStubs(sb, engineRun);
-
-      const extractionCalls = [];
-      sb.stub(PageExtractorParent, "getHeadlessExtractor").callsFake(
-        async options => {
-          const { urlString, callback } = options;
-          const getText = sb.stub().resolves({
-            text: `Extracted text for ${urlString}`,
-            links: [],
-          });
-          extractionCalls.push({ ...options, getText });
-          return callback({ getText });
-        }
-      );
-
-      const monitor = makeMonitor({
-        monitorPrompt: "Tell me when the product is under $10",
-        watchUrls: [
-          "https://example.com/product-a",
-          "https://example.com/product-b",
-        ],
-      });
-      const abortController = new AbortController();
-
-      const result = await monitor.runMonitorCheck({
-        flowId: "flow-123",
-        now: new Date("2026-06-23T14:30:00.000Z"),
-        signal: abortController.signal,
-      });
-
-      Assert.deepEqual(result, {
-        explanation: "The product is now $9.99.",
-        conditionMet: true,
-      });
-      Assert.equal(extractionCalls.length, 2);
-      Assert.deepEqual(
-        extractionCalls.map(call => call.urlString),
-        ["https://example.com/product-a", "https://example.com/product-b"]
-      );
-
-      const getTextOptions = extractionCalls[0].getText.firstCall.args[0];
-      Assert.deepEqual(getTextOptions, {
-        sufficientLength: 10000,
-        cleanWhitespace: true,
-        removeBoilerplate: true,
-        sourceUrl: "https://example.com/product-a",
-      });
-
-      sinon.assert.calledOnce(openAIEngine.build);
-      Assert.deepEqual(openAIEngine.build.firstCall.args[0], {
-        model: "monitor-test-model",
-        serviceType: SERVICE_TYPES.AI,
-        purpose: PURPOSES.CHAT,
-        flowId: "flow-123",
-        feature: MODEL_FEATURES.CHAT,
-        baseURL: openAIEngine.endpoint,
-        apiKey: "",
-      });
-
-      sinon.assert.calledOnce(engineRun);
-      Assert.equal(payload.fxAccountToken, "fx-token");
-      Assert.equal(payload.responseFormat.type, "json_schema");
-      Assert.deepEqual(payload.tools, []);
-      Assert.equal(payload.args.length, 2);
-      Assert.equal(payload.args[0].role, "system");
-      Assert.ok(
-        payload.args[0].content.includes(
-          "Tell me when the product is under $10"
-        )
-      );
-      Assert.ok(payload.args[1].content.includes("2026-06-23T14:30:00.000Z"));
-      Assert.ok(
-        payload.args[1].content.includes("https://example.com/product-a")
-      );
-      Assert.ok(
-        payload.args[1].content.includes(
-          "Content from https://example.com/product-a"
-        )
-      );
-      Assert.ok(payload.args[1].content.includes("<----- PAGE BREAK ---->"));
-    } finally {
-      cleanupMonitorModelStubs(sb);
-    }
-  }
-);
-
-add_task(async function test_runMonitorCheck_reports_missing_page_content() {
-  const sb = sinon.createSandbox();
-  try {
-    let payload;
-    setupMonitorModelStubs(
-      sb,
-      sb.stub().callsFake(async runPayload => {
-        payload = runPayload;
-        return {
-          finalOutput:
-            '{"explanation":"No page content was available.","conditionMet":false}',
-        };
-      })
-    );
-    sb.stub(PageExtractorParent, "getHeadlessExtractor").callsFake(
-      async ({ callback }) => callback({ getText: sb.stub().resolves(null) })
-    );
-
-    const result = await makeMonitor().runMonitorCheck();
-
-    Assert.deepEqual(result, {
-      explanation: "No page content was available.",
-      conditionMet: false,
-    });
-    Assert.ok(
-      payload.args[1].content.includes(
-        "get_page_content returned no content for https://example.com/product."
-      )
-    );
-  } finally {
-    cleanupMonitorModelStubs(sb);
-  }
-});
-
-add_task(async function test_runMonitorCheck_keeps_successful_page_content() {
-  const sb = sinon.createSandbox();
-  try {
-    let payload;
-    setupMonitorModelStubs(
-      sb,
-      sb.stub().callsFake(async runPayload => {
-        payload = runPayload;
-        return {
-          finalOutput:
-            '{"explanation":"One page was available.","conditionMet":false}',
-        };
-      })
-    );
-    sb.stub(PageExtractorParent, "getHeadlessExtractor").callsFake(
-      async ({ urlString, callback }) => {
-        if (urlString.endsWith("/unavailable")) {
-          throw new Error("fetch failed");
-        }
-        return callback({
-          getText: sb.stub().resolves({
-            text: `Extracted text for ${urlString}`,
-            links: [],
-          }),
-        });
-      }
-    );
-
-    const result = await makeMonitor({
-      watchUrls: [
-        "https://example.com/product",
-        "https://example.com/unavailable",
-      ],
-    }).runMonitorCheck();
-
-    Assert.deepEqual(result, {
-      explanation: "One page was available.",
-      conditionMet: false,
-    });
-    Assert.ok(
-      payload.args[1].content.includes(
-        "Content from https://example.com/product"
-      )
-    );
-    Assert.ok(
-      payload.args[1].content.includes(
-        "Could not retrieve the content for the page: https://example.com/unavailable"
-      )
-    );
-  } finally {
-    cleanupMonitorModelStubs(sb);
-  }
 });
 
 add_task(async function test_run_skips_scheduled_check_until_due_or_enabled() {
@@ -1079,38 +837,6 @@ add_task(
 );
 
 add_task(
-  async function test_MonitorStore_recovers_from_corrupt_schema_initialization() {
-    await clearStoredMonitors();
-    const sb = sinon.createSandbox();
-    try {
-      const error = new Error("database disk image is malformed");
-      error.result = Cr.NS_ERROR_FILE_CORRUPTED;
-
-      const corruptConn = makeMonitorStoreConnection(sb, {
-        getSchemaVersion: sb.stub().rejects(error),
-      });
-      const healthyConn = makeMonitorStoreConnection(sb, {
-        getSchemaVersion: sb.stub().resolves(0),
-      });
-      const openConnection = sb.stub(Sqlite, "openConnection");
-      openConnection.onFirstCall().resolves(corruptConn);
-      openConnection.onSecondCall().resolves(healthyConn);
-
-      Assert.deepEqual(await MonitorStore.listMonitors(), []);
-
-      sinon.assert.calledTwice(openConnection);
-      sinon.assert.calledOnce(corruptConn.close);
-      sinon.assert.calledOnce(healthyConn.executeTransaction);
-      sinon.assert.calledOnce(healthyConn.setSchemaVersion);
-    } finally {
-      await MonitorStore.close();
-      sb.restore();
-      await clearStoredMonitors();
-    }
-  }
-);
-
-add_task(
   async function test_MonitorAgent_update_rejects_invalid_required_fields() {
     await clearStoredMonitors();
     const sb = sinon.createSandbox();
@@ -1207,25 +933,6 @@ add_task(async function test_MonitorAgent_create_accepts_watchUrls() {
       "https://example.com/one",
       "https://example.com/two",
     ]);
-  } finally {
-    sb.restore();
-    await clearStoredMonitors();
-  }
-});
-
-add_task(async function test_MonitorAgent_runNow_uses_manual_run() {
-  await clearStoredMonitors();
-  const sb = sinon.createSandbox();
-  try {
-    sb.stub(Monitor.prototype, "scheduleNextRun");
-    const run = sb.stub(Monitor.prototype, "run").resolves();
-
-    const monitor = await createStoredMonitor(stockMonitorOptions());
-
-    Assert.equal(await MonitorAgent.runNow(monitor.id), undefined);
-    sinon.assert.calledOnce(run);
-    Assert.deepEqual(run.firstCall.args, [{ manual: true }]);
-    Assert.equal(await MonitorAgent.runNow("missing"), undefined);
   } finally {
     sb.restore();
     await clearStoredMonitors();
